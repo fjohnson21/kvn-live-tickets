@@ -53,3 +53,7 @@ The dashboard includes demo buttons for Owner, Organizer, and Staff. Demo authen
 ## Production deployment target
 
 The current project can be deployed on Render/Railway/Fly.io for testing. For production, a recommended stack is Node/Express + PostgreSQL + managed object storage + Stripe Connect + Resend/Postmark + Clerk/Auth0/Supabase Auth, with Redis for sessions/rate limiting if needed.
+
+
+## Disciple Network (affiliate/referral system)
+KVN calls referral partners **Disciples**. Each Disciple has a unique `?disciple=CODE` tracking link, a default commission rate, optional event-specific overrides, earnings records, and Stripe Connect payout fields. Commission is calculated on merchandise/ticket subtotal after discounts and excludes taxes. On successful payment, the server records the commission and can immediately transfer it to the Disciple's Stripe Connect account. If that connected account is eligible for Stripe Instant Payouts and the feature is enabled, the server also attempts an instant payout. Stripe eligibility, available balance, debit-card support, risk/compliance requirements, and payout fees can prevent a bank/card payout from being truly instantaneous; in that case the dashboard marks the commission as transferred/pending rather than falsely reporting it paid.

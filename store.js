@@ -10,8 +10,8 @@ const seedFile = path.join(__dirname, 'data', 'store.json');
 if (!fs.existsSync(file) && fs.existsSync(seedFile)) fs.copyFileSync(seedFile,file);
 export function readStore(){
   const d=JSON.parse(fs.readFileSync(file,'utf8'));
-  d.staff ||= []; d.payouts ||= []; d.auditLogs ||= []; d.abandonedCarts ||= []; d.media ||= [];
-  d.settings ||= {}; d.settings.platformFeePercent ??= 5; d.settings.taxRatePercent ??= 0;
+  d.staff ||= []; d.payouts ||= []; d.auditLogs ||= []; d.abandonedCarts ||= []; d.media ||= []; d.disciples ||= []; d.discipleCommissions ||= []; d.disciplePayouts ||= [];
+  d.settings ||= {}; d.settings.platformFeePercent ??= 5; d.settings.taxRatePercent ??= 0; d.settings.discipleCookieDays ??= 30; d.settings.defaultDiscipleCommissionPercent ??= 10;
   d.settings.feePlans ||= [{id:'standard',name:'Standard',percent:5,fixed:0},{id:'partner',name:'Kingdom Partner',percent:3.5,fixed:0},{id:'enterprise',name:'Enterprise',percent:2.5,fixed:25}];
   d.organizations.forEach(o=>{ o.feePlanId ||= 'standard'; o.payoutSchedule ||= 'weekly'; o.onboarding ||= {profile:true,branding:false,payouts:false,firstEvent:false}; });
   d.events.forEach(e=>{ e.taxRatePercent ??= d.settings.taxRatePercent; e.customSlug ||= e.slug; e.media ||= {}; });
