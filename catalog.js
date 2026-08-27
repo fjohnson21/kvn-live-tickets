@@ -1,63 +1,10 @@
-export const event = {
-  brand: "Kingdom Vibe Live",
-  eyebrow: "KINGDOM VIBE NETWORK PRESENTS",
-  title: "Kingdom Vibe Live",
-  date: "Saturday, November 21, 2026",
-  venue: "Dennis A. Wicker Civic Center",
-  location: "Sanford, North Carolina",
-  description: "A full-day Kingdom experience bringing together faith, culture, community impact and live worship.",
-  heroNote: "Tickets and apparel can be purchased together in one checkout."
-};
-
-export const products = [
-  {
-    id: "general-admission",
-    type: "ticket",
-    name: "General Admission",
-    description: "Admission to Kingdom Vibe Live.",
-    price: 4900,
-    badge: "EVENT PASS"
-  },
-  {
-    id: "vip-pass",
-    type: "ticket",
-    name: "VIP Experience",
-    description: "Premium event access with VIP entry and enhanced experience.",
-    price: 9900,
-    badge: "VIP"
-  },
-  {
-    id: "founders-pass",
-    type: "ticket",
-    name: "Founders Experience",
-    description: "Top-tier Kingdom Vibe experience for early supporters and movement builders.",
-    price: 14900,
-    badge: "FOUNDERS"
-  },
-  {
-    id: "made-by-god-gray",
-    type: "apparel",
-    name: "Not Self Made — Made By God Tee",
-    description: "Premium gray Kingdom Vibe Collection tee.",
-    price: 3500,
-    badge: "DROP 001",
-    options: {
-      size: ["S", "M", "L", "XL", "2XL", "3XL"]
-    }
-  },
-  {
-    id: "made-by-god-black",
-    type: "apparel",
-    name: "Not Self Made — Made By God Tee / Black",
-    description: "Premium black Kingdom Vibe Collection tee.",
-    price: 3500,
-    badge: "DROP 001",
-    options: {
-      size: ["S", "M", "L", "XL", "2XL", "3XL"]
-    }
-  }
-];
-
-export function findProduct(id) {
-  return products.find((product) => product.id === id);
-}
+const money=c=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format((c||0)/100);let event,organization;let cart=[];let cartId=localStorage.getItem('kvn_cart_id')||('cart_'+Math.random().toString(36).slice(2));localStorage.setItem('kvn_cart_id',cartId);const qs=new URLSearchParams(location.search);const slug=qs.get('slug');const discipleParam=(qs.get('disciple')||'').toUpperCase();if(discipleParam){localStorage.setItem('kvn_disciple_code',discipleParam);localStorage.setItem('kvn_disciple_at',String(Date.now()));}const discipleCode=localStorage.getItem('kvn_disciple_code')||'';
+const esc=(s='')=>String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+async function init(){const r=await fetch(`/api/events/${encodeURIComponent(slug||'')}`);const d=await r.json();if(!r.ok){page.innerHTML='<div class="shell section"><h1>Event not found.</h1><a href="/">Back to events</a></div>';return;}event=d.event;organization=d.organization;document.documentElement.style.setProperty('--accent',event.theme?.accent||'#e2252b');document.title=`${event.title} • KVN Live Tickets`;cart=JSON.parse(localStorage.getItem(`cart_${event.id}`)||'[]');renderPage();renderCart();}
+function products(type){return event.products.filter(p=>p.type===type)}
+function renderProducts(type){const ps=products(type);if(!ps.length)return '<p class="muted">No items available in this section.</p>';return `<div class="products">${ps.map(p=>`<article class="product-card"><div><span class="badge">${esc(p.badge||p.type)}</span><h3>${esc(p.name)}</h3><p class="muted">${esc(p.description)}</p><small class="muted">${p.available} available</small></div><div><div class="product-price">${money(p.price)}</div><div class="product-actions">${p.options?.size?`<select id="size-${p.id}">${p.options.size.map(s=>`<option>${esc(s)}</option>`).join('')}</select>`:'<span></span>'}<input type="number" id="qty-${p.id}" value="1" min="1" max="20"><button class="btn primary" onclick="add('${p.id}')">Add</button></div></div></article>`).join('')}</div>`}
+function renderPage(){const blocks=event.layout||[];const heroStyle=event.media?.hero?`style="background-image:linear-gradient(#0009,#000d),url('${event.media.hero}')"`:'';page.innerHTML=`<section class="event-hero" ${heroStyle}><div class="shell"><span class="kicker">${esc(organization?.name||'KVN PARTNER EVENT')}</span><h1>${esc(event.title)}</h1><p>${esc(event.description)}</p><div class="inline-actions"><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">Get Tickets</button><button class="btn" onclick="drawerOpen(true)">View Cart</button></div></div></section><div class="shell">${blocks.filter(b=>b.type!=='hero').map(b=>blockHtml(b)).join('')}</div>`}
+function blockHtml(b){if(b.type==='tickets')return `<section class="layout-block" data-type="tickets"><span class="kicker">TICKETS</span><h2>${esc(b.title)}</h2><p class="muted">${esc(b.body)}</p>${renderProducts('ticket')}</section>`;if(b.type==='apparel')return `<section class="layout-block"><span class="kicker">APPAREL</span><h2>${esc(b.title)}</h2><p class="muted">${esc(b.body)}</p>${renderProducts('apparel')}</section>`;if(b.type==='details')return `<section class="layout-block"><span class="kicker">EVENT DETAILS</span><h2>${esc(b.title)}</h2><p>${esc(b.body)}</p><p class="muted">${esc(event.venue)} • ${esc(event.location)}</p></section>`;if(b.type==='image')return `<section class="layout-block visual-image-block ${esc(b.width||'full')}"><h2>${esc(b.title)}</h2>${event.media?.hero?`<img src="${event.media.hero}" alt="${esc(b.title)}">`:''}<p class="muted">${esc(b.body)}</p></section>`;if(b.type==='cta')return `<section class="layout-block"><h2>${esc(b.title)}</h2><p>${esc(b.body)}</p><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">Get Tickets</button></section>`;return `<section class="layout-block"><h2>${esc(b.title)}</h2><p class="muted">${esc(b.body)}</p></section>`}
+window.add=function(id){const p=event.products.find(x=>x.id===id);const q=Math.max(1,Math.min(20,Number(document.getElementById(`qty-${id}`).value)||1));const size=document.getElementById(`size-${id}`)?.value||null;const key=`${id}:${size||''}`;const ex=cart.find(x=>x.key===key);if(ex)ex.quantity+=q;else cart.push({key,id,size,quantity:q});save();renderCart();drawerOpen(true)}
+function save(){localStorage.setItem(`cart_${event.id}`,JSON.stringify(cart));trackCart()}function renderCart(){cartCount.textContent=cart.reduce((n,x)=>n+x.quantity,0);cartRows.innerHTML=cart.length?'':'<p class="muted">Your cart is empty.</p>';let total=0;cart.forEach(i=>{const p=event.products.find(x=>x.id===i.id);if(!p)return;total+=p.price*i.quantity;const r=document.createElement('div');r.className='cart-row';r.innerHTML=`<div><strong>${i.quantity} × ${esc(p.name)}</strong><div class="muted">${i.size?`Size ${esc(i.size)}`:''}</div><button class="btn small" onclick="removeItem('${i.key}')">Remove</button></div><strong>${money(p.price*i.quantity)}</strong>`;cartRows.appendChild(r)});cartTotal.textContent=money(total)}window.removeItem=k=>{cart=cart.filter(x=>x.key!==k);save();renderCart()};function drawerOpen(v){drawer.classList.toggle('open',v)}window.drawerOpen=drawerOpen;openCart.onclick=()=>drawerOpen(true);closeCart.onclick=()=>drawerOpen(false);backdrop.onclick=()=>drawerOpen(false);buyerEmail?.addEventListener('change',()=>trackCart());async function trackCart(status='open'){if(!event)return;let amount=0;for(const i of cart){const p=event.products.find(x=>x.id===i.id);if(p)amount+=p.price*i.quantity}try{await fetch('/api/carts/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cartId,eventId:event.id,items:cart,email:buyerEmail?.value||'',amount,status})})}catch{}}
+checkout.onclick=async()=>{checkoutError.textContent='';if(!cart.length)return checkoutError.textContent='Add at least one item.';if(!/^\S+@\S+\.\S+$/.test(buyerEmail.value))return checkoutError.textContent='Enter a valid email.';checkout.disabled=true;const r=await fetch('/api/create-checkout-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({eventId:event.id,cart,customer:{name:buyerName.value,email:buyerEmail.value},discountCode:discountCode.value,cartId,discipleCode})});const d=await r.json();if(r.ok)location.href=d.url;else{checkoutError.textContent=d.error;checkout.disabled=false;}};init();

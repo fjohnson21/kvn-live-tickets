@@ -1,33 +1,18 @@
-services:
-  - type: web
-    name: kvn-live-tickets-v3-test
-    runtime: node
-    plan: starter
-    buildCommand: npm install
-    startCommand: npm start
-    healthCheckPath: /
-    envVars:
-      - key: NODE_VERSION
-        value: 20.19.0
-      - key: PLATFORM_FEE_PERCENT
-        value: 5
-      - key: DATA_DIR
-        value: /var/data
-      - key: UPLOAD_DIR
-        value: /var/data/uploads
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: BASE_URL
-        sync: false
-      - key: OWNER_EMAIL
-        sync: false
-      - key: RESEND_API_KEY
-        sync: false
-      - key: EMAIL_FROM
-        sync: false
-    disk:
-      name: kvn-live-tickets-data
-      mountPath: /var/data
-      sizeGB: 1
+{
+  "name": "kvn-live-tickets-platform",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check public/app.js && node --check public/dashboard.js && node --check public/checkin.js && node --check public/event.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "stripe": "^17.3.1",
+    "qrcode": "^1.5.4"
+  },
+  "description": "KVN Live Tickets multi-organizer production-oriented ticketing platform"
+}
