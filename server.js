@@ -6,6 +6,11 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { readStore, writeStore, id, slugify, ticketCode } from './store.js';
+import { applyApparelConfig } from './lib/apparel.js';
+import { normalizeCustomer, validateCustomer } from './lib/customer.js';
+import { normalizeTicketCartItem } from './lib/checkout.js';
+import { finalizeOrderItems } from './lib/finalize.js';
+import { eventReportCsv } from './lib/report.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -103,8 +108,8 @@ app.put('/api/events/:id', auth, (req,res)=>{ const d=readStore(); const e=d.eve
 
 app.post('/api/events/:id/status', auth, owner, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.params.id); if(!e) return res.status(404).json({error:'Event not found.'}); const status=req.body.status; if(!['draft','pending','published','rejected','paused'].includes(status)) return res.status(400).json({error:'Invalid status.'}); e.status=status; e.updatedAt=new Date().toISOString(); writeStore(d); res.json({event:e}); });
 
-app.post('/api/events/:id/products', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(404).json({error:'Event not found.'}); const type=req.body.type==='apparel'?'apparel':'ticket'; const sizes=Array.isArray(req.body.options?.size)?req.body.options.size:[]; const p={id:id('prd'),type,name:req.body.name||'New Ticket',description:req.body.description||'',price:Math.max(0,Number(req.body.price)||0),inventory:Math.max(0,Number(req.body.inventory)||0),sold:0,badge:req.body.badge||'',options:type==='apparel'?{size:sizes}:undefined,minPerOrder:Math.max(1,Number(req.body.minPerOrder)||1),maxPerOrder:Math.max(1,Number(req.body.maxPerOrder)||20),quantityStep:Math.max(1,Number(req.body.quantityStep)||1),group:{enabled:Boolean(req.body.group?.enabled),minQty:Math.max(1,Number(req.body.group?.minQty)||1),maxQty:Math.max(1,Number(req.body.group?.maxQty)||999),discountType:req.body.group?.discountType==='fixed'?'fixed':'percent',discountValue:Math.max(0,Number(req.body.group?.discountValue)||0),tiers:Array.isArray(req.body.group?.tiers)?req.body.group.tiers:[]},includedApparel:{enabled:Boolean(req.body.includedApparel?.enabled),productId:String(req.body.includedApparel?.productId||''),sizes:Array.isArray(req.body.includedApparel?.sizes)?req.body.includedApparel.sizes:[],sizeInventory:req.body.includedApparel?.sizeInventory||{},quantityPerTicket:Math.max(1,Number(req.body.includedApparel?.quantityPerTicket)||1)}}; e.products.push(p); e.updatedAt=new Date().toISOString(); writeStore(d); res.status(201).json({product:p,event:e}); });
-app.put('/api/events/:id/products/:productId', auth, (req,res)=>{ const d=readStore(),e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const p=e.products.find(x=>x.id===req.params.productId); if(!p)return res.status(404).json({error:'Product not found.'}); for(const k of ['name','description','price','inventory','badge','minPerOrder','maxPerOrder','quantityStep']) if(req.body[k]!==undefined)p[k]=req.body[k]; if(req.body.options)p.options=req.body.options;if(req.body.group)p.group={...(p.group||{}),...req.body.group};if(req.body.includedApparel)p.includedApparel={...(p.includedApparel||{}),...req.body.includedApparel};writeStore(d);res.json({product:p,event:e}); });
+app.post('/api/events/:id/products', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(404).json({error:'Event not found.'}); const type=req.body.type==='apparel'?'apparel':'ticket'; const sizes=Array.isArray(req.body.options?.size)?req.body.options.size:[]; const p={id:id('prd'),type,name:req.body.name||'New Ticket',description:req.body.description||'',price:Math.max(0,Number(req.body.price)||0),inventory:Math.max(0,Number(req.body.inventory)||0),sold:0,badge:req.body.badge||'',options:type==='apparel'?{size:sizes}:undefined,minPerOrder:Math.max(1,Number(req.body.minPerOrder)||1),maxPerOrder:Math.max(1,Number(req.body.maxPerOrder)||20),quantityStep:Math.max(1,Number(req.body.quantityStep)||1),group:{enabled:Boolean(req.body.group?.enabled),minQty:Math.max(1,Number(req.body.group?.minQty)||1),maxQty:Math.max(1,Number(req.body.group?.maxQty)||999),discountType:req.body.group?.discountType==='fixed'?'fixed':'percent',discountValue:Math.max(0,Number(req.body.group?.discountValue)||0),tiers:Array.isArray(req.body.group?.tiers)?req.body.group.tiers:[]}}; try{if(type==='ticket')applyApparelConfig(p,req.body.includedApparel);}catch(err){return res.status(400).json({error:err.message});} e.products.push(p); e.updatedAt=new Date().toISOString(); writeStore(d); res.status(201).json({product:p,event:e}); });
+app.put('/api/events/:id/products/:productId', auth, (req,res)=>{ const d=readStore(),e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const p=e.products.find(x=>x.id===req.params.productId); if(!p)return res.status(404).json({error:'Product not found.'}); for(const k of ['name','description','price','inventory','badge','minPerOrder','maxPerOrder','quantityStep']) if(req.body[k]!==undefined)p[k]=req.body[k]; if(req.body.options)p.options=req.body.options;if(req.body.group)p.group={...(p.group||{}),...req.body.group};try{if(p.type==='ticket'&&req.body.includedApparel)applyApparelConfig(p,req.body.includedApparel);}catch(err){return res.status(400).json({error:err.message});}writeStore(d);res.json({product:p,event:e}); });
 
 
 app.post('/api/disciples', auth, (req,res)=>{
@@ -129,18 +134,25 @@ app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.eve
 app.post('/api/create-checkout-session', async (req,res)=>{
   try{
     const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId && x.status==='published'); if(!e) return res.status(404).json({error:'Event is not available for checkout.'});
+    const customer=normalizeCustomer(req.body.customer),customerErrors=validateCustomer(customer);if(customerErrors.length)return res.status(400).json({error:customerErrors[0]});
     const cart=Array.isArray(req.body.cart)?req.body.cart:[]; if(!cart.length) return res.status(400).json({error:'Your cart is empty.'});
     let subtotal=0, groupDiscountAmount=0; const normalized=[]; const lineItems=[];
     for(const item of cart){
       const p=e.products.find(x=>x.id===item.id); if(!p) continue;
+      if(p.type==='ticket'){
+        let result;try{result=normalizeTicketCartItem(p,item);}catch(err){if(err.statusCode)return res.status(err.statusCode).json({error:err.message});throw err;}
+        subtotal+=result.item.ticketSubtotal+result.apparelSubtotal;groupDiscountAmount+=result.item.groupDiscountPerUnit*result.item.quantity;normalized.push(result.item);
+        lineItems.push({quantity:result.ticketLineItem.quantity,price_data:{currency:'usd',unit_amount:result.ticketLineItem.unitAmount,product_data:{name:result.ticketLineItem.name,description:result.ticketLineItem.description}}});
+        for(const apparel of result.apparelLineItems){normalized.push({productId:null,name:apparel.name,type:'apparel-addon',quantity:apparel.quantity,unitAmount:apparel.unitAmount,regularUnitAmount:apparel.unitAmount,groupDiscountPerUnit:0});lineItems.push({quantity:apparel.quantity,price_data:{currency:'usd',unit_amount:apparel.unitAmount,product_data:{name:apparel.name,description:`Optional add-on for ${p.name}`}}});}
+        continue;
+      }
       const min=Math.max(1,Number(p.minPerOrder)||1),max=Math.max(min,Number(p.maxPerOrder)||20),step=Math.max(1,Number(p.quantityStep)||1); const q=Math.max(min,Math.min(Number(item.quantity)||min,max));
       if((q-min)%step!==0)return res.status(400).json({error:`${p.name} must be selected in increments of ${step}.`}); if(q>p.inventory-p.sold)return res.status(409).json({error:`Only ${p.inventory-p.sold} ${p.name} remaining.`});
       if(p.group?.enabled&&(q<Number(p.group.minQty||1)||q>Number(p.group.maxQty||9999)))return res.status(400).json({error:`${p.name} group quantity must be between ${p.group.minQty} and ${p.group.maxQty}.`});
       const unitGroupDiscount=groupDiscountFor(p,q), effectiveUnit=Math.max(0,p.price-unitGroupDiscount); groupDiscountAmount+=unitGroupDiscount*q;
-      let name=p.name, size=item.size||null, apparelSelections=[];
+      let name=p.name, size=item.size||null;
       if(p.type==='apparel'){ if(!p.options?.size?.includes(size))return res.status(400).json({error:`Select a valid size for ${p.name}.`});name+=` — ${size}`; }
-      if(p.type==='ticket'&&p.includedApparel?.enabled){ apparelSelections=Array.isArray(item.apparelSizes)?item.apparelSizes:[]; if(apparelSelections.length!==q)return res.status(400).json({error:`Choose one apparel size for each ${p.name} ticket.`}); const allowed=p.includedApparel.sizes||[]; for(const z of apparelSelections)if(!allowed.includes(z))return res.status(400).json({error:`Invalid included apparel size ${z}.`}); const counts={};apparelSelections.forEach(z=>counts[z]=(counts[z]||0)+1);for(const [z,c] of Object.entries(counts)){const limit=Number(p.includedApparel.sizeInventory?.[z]??999999);if(c>limit)return res.status(409).json({error:`Only ${limit} included apparel items remain in size ${z}.`});}}
-      subtotal+=effectiveUnit*q; normalized.push({productId:p.id,name:p.name,type:p.type,size,apparelSizes:apparelSelections,quantity:q,unitAmount:effectiveUnit,regularUnitAmount:p.price,groupDiscountPerUnit:unitGroupDiscount}); lineItems.push({quantity:q,price_data:{currency:'usd',unit_amount:effectiveUnit,product_data:{name,description:p.description}}});
+      subtotal+=effectiveUnit*q; normalized.push({productId:p.id,name:p.name,type:p.type,size,quantity:q,unitAmount:effectiveUnit,regularUnitAmount:p.price,groupDiscountPerUnit:unitGroupDiscount}); lineItems.push({quantity:q,price_data:{currency:'usd',unit_amount:effectiveUnit,product_data:{name,description:p.description}}});
     }
     if(!normalized.length)return res.status(400).json({error:'No valid items.'});
     let promoDiscountAmount=0,discountCode='';if(req.body.discountCode){const disc=d.discounts.find(x=>x.eventId===e.id&&x.active&&x.code===String(req.body.discountCode).toUpperCase()&&x.uses<x.maxUses);if(disc){discountCode=disc.code;promoDiscountAmount=disc.type==='percent'?Math.round(subtotal*Math.min(disc.value,100)/100):Math.min(subtotal,Math.round(disc.value));}}
@@ -149,9 +161,9 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     let discounts=[];if(promoDiscountAmount>0){const coupon=await stripe?.coupons.create({amount_off:promoDiscountAmount,currency:'usd',duration:'once',name:`${discountCode} discount`});if(coupon)discounts=[{coupon:coupon.id}];}
     const discipleCode=String(req.body.discipleCode||'').toUpperCase(),disciple=d.disciples.find(x=>x.code===discipleCode&&x.status==='active'),orderId=id('ord'); const total=subtotal-promoDiscountAmount+taxAmount+fees.buyerKvnFee+fees.buyerMerchantFee;
     if(!stripe)return res.status(503).json({error:'Stripe is not configured. Add STRIPE_SECRET_KEY to accept payments.',preview:{subtotal,groupDiscountAmount,promoDiscountAmount,taxAmount,fees,total,orderId}});
-    const sessionConfig={mode:'payment',line_items:lineItems,discounts,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:req.body.customer?.email||undefined,billing_address_collection:'auto',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:req.body.customer?.name||'',disciple_code:disciple?.code||''}};
+    const sessionConfig={mode:'payment',line_items:lineItems,discounts,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''}};
     const org=d.organizations.find(o=>o.id===e.organizationId),discipleSplit=Boolean(disciple?.stripeAccountId); if(org?.stripeAccountId&&!discipleSplit){sessionConfig.payment_intent_data={application_fee_amount:Math.max(0,fees.kvnFee),transfer_data:{destination:org.stripeAccountId}};}if(discipleSplit)sessionConfig.payment_intent_data={metadata:{split_mode:'disciple',organization_id:e.organizationId,disciple_id:disciple.id}};
-    const session=await stripe.checkout.sessions.create(sessionConfig); d.orders.push({id:orderId,eventId:e.id,organizationId:e.organizationId,stripeSessionId:session.id,buyerName:req.body.customer?.name||'',buyerEmail:req.body.customer?.email||'',cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);res.json({url:session.url});
+    const session=await stripe.checkout.sessions.create(sessionConfig); d.orders.push({id:orderId,eventId:e.id,organizationId:e.organizationId,stripeSessionId:session.id,buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);res.json({url:session.url});
   }catch(err){console.error(err);res.status(500).json({error:err.message||'Unable to start checkout.'});}
 });
 
@@ -161,7 +173,25 @@ async function sendConfirmation(order,event){
   try { await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${process.env.RESEND_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.EMAIL_FROM||'KVN Live Tickets <onboarding@resend.dev>',to:[order.buyerEmail],subject:`Your tickets: ${event.title}`,html:`<h1>You're in.</h1><p>Order ${order.id}</p>${ticketHtml}<p>${event.venue} • ${event.location}</p>`})}); } catch(err){ console.error('Email delivery error',err.message); }
 }
 
-async function finalizeSession(session){ const d=readStore(); const o=d.orders.find(x=>x.stripeSessionId===session.id); if(!o||o.status==='paid') return o; const e=d.events.find(x=>x.id===o.eventId); o.status='paid'; o.buyerEmail=session.customer_details?.email||o.buyerEmail; o.buyerName=session.customer_details?.name||o.buyerName; o.paidAt=new Date().toISOString(); for(const item of o.items){ const p=e.products.find(x=>x.id===item.productId); if(p) p.sold+=item.quantity; if(item.type==='ticket') for(let i=0;i<item.quantity;i++){const apparelSize=item.apparelSizes?.[i]||null;o.tickets.push({id:id('tkt'),code:ticketCode(),productId:item.productId,ticketName:item.name,holderName:o.buyerName,includedApparel:apparelSize?{size:apparelSize,fulfilled:false}:null,checkedIn:false,checkedInAt:null});if(apparelSize&&p?.includedApparel?.sizeInventory&&p.includedApparel.sizeInventory[apparelSize]!=null)p.includedApparel.sizeInventory[apparelSize]=Math.max(0,Number(p.includedApparel.sizeInventory[apparelSize])-1);} } if(o.discountAmount){ const dc=d.discounts.find(x=>x.eventId===e.id&&x.code===session.metadata?.discount_code); if(dc)dc.uses++; } if(o.cartId){ const c=d.abandonedCarts.find(x=>x.id===o.cartId); if(c){ c.status='converted'; c.updatedAt=new Date().toISOString(); } } await processDiscipleCommission(d,o,e,session); if(o.discipleSplitMode){ const org=d.organizations.find(x=>x.id===o.organizationId); if(stripe&&org?.stripeAccountId&&session?.payment_intent&&!o.organizerTransferId){ try{ const pi=await stripe.paymentIntents.retrieve(session.payment_intent); const sourceCharge=typeof pi.latest_charge==='string'?pi.latest_charge:pi.latest_charge?.id; const platformFee=Math.round((o.amountTotal||0)*Number(o.platformFeePercent||d.settings.platformFeePercent||5)/100); const organizerAmount=Math.max(0,(o.amountTotal||0)-platformFee-(o.discipleCommissionAmount||0)); if(organizerAmount>0){ const tr=await stripe.transfers.create({amount:organizerAmount,currency:'usd',destination:org.stripeAccountId,...(sourceCharge?{source_transaction:sourceCharge}:{}),metadata:{order_id:o.id,organization_id:org.id,kind:'organizer_net'}}); o.organizerTransferId=tr.id; o.organizerTransferAmount=organizerAmount; } }catch(err){o.organizerTransferNote=`Organizer transfer pending: ${err.message}`;} } writeStore(d); await sendConfirmation(o,e); return o; } }
+async function finalizeSession(session){
+  const d=readStore();
+  const o=d.orders.find(x=>x.stripeSessionId===session.id);
+  if(!o||o.status==='paid') return o;
+  const e=d.events.find(x=>x.id===o.eventId);
+  o.status='paid';
+  o.buyerEmail=session.customer_details?.email||o.buyerEmail;
+  o.buyerName=session.customer_details?.name||o.buyerName;
+  o.paidAt=new Date().toISOString();
+  finalizeOrderItems(o,e,{id,ticketCode});
+  if(o.discountAmount){ const dc=d.discounts.find(x=>x.eventId===e.id&&x.code===session.metadata?.discount_code); if(dc)dc.uses++; }
+  if(o.cartId){ const c=d.abandonedCarts.find(x=>x.id===o.cartId); if(c){ c.status='converted'; c.updatedAt=new Date().toISOString(); } }
+  await processDiscipleCommission(d,o,e,session);
+  if(o.discipleSplitMode){ const org=d.organizations.find(x=>x.id===o.organizationId); if(stripe&&org?.stripeAccountId&&session?.payment_intent&&!o.organizerTransferId){ try{ const pi=await stripe.paymentIntents.retrieve(session.payment_intent); const sourceCharge=typeof pi.latest_charge==='string'?pi.latest_charge:pi.latest_charge?.id; const platformFee=Math.round((o.amountTotal||0)*Number(o.platformFeePercent||d.settings.platformFeePercent||5)/100); const organizerAmount=Math.max(0,(o.amountTotal||0)-platformFee-(o.discipleCommissionAmount||0)); if(organizerAmount>0){ const tr=await stripe.transfers.create({amount:organizerAmount,currency:'usd',destination:org.stripeAccountId,...(sourceCharge?{source_transaction:sourceCharge}:{}),metadata:{order_id:o.id,organization_id:org.id,kind:'organizer_net'}}); o.organizerTransferId=tr.id; o.organizerTransferAmount=organizerAmount; } }catch(err){o.organizerTransferNote=`Organizer transfer pending: ${err.message}`;} }
+  }
+  writeStore(d);
+  await sendConfirmation(o,e);
+  return o;
+}
 
 app.get('/api/tickets/:code/qr.svg', async (req,res)=>{
   const d=readStore(); const code=String(req.params.code||'').toUpperCase();
@@ -221,8 +251,8 @@ app.delete('/api/staff/:id', auth, (req,res)=>{ const d=readStore(); const u=d.u
 
 app.get('/api/events/:id/attendees.csv', auth, (req,res)=>{
   const d=readStore(), e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)||!can(req.user,'attendees')) return res.status(403).json({error:'No access.'});
-  const rows=[['Order','Buyer','Email','Ticket','Ticket Type','Included Apparel Size','Checked In','Checked In At']]; d.orders.filter(o=>o.eventId===e.id&&o.status==='paid').forEach(o=>(o.tickets||[]).forEach(t=>rows.push([o.id,o.buyerName,o.buyerEmail,t.code,t.ticketName,t.includedApparel?.size||'',t.checkedIn?'Yes':'No',t.checkedInAt||''])));
-  res.type('text/csv').set('Content-Disposition',`attachment; filename="${e.slug}-attendees.csv"`).send(rows.map(r=>r.map(csvEscape).join(',')).join('\n'));
+  const orders=d.orders.filter(o=>o.eventId===e.id&&o.status==='paid');
+  res.type('text/csv').set('Content-Disposition',`attachment; filename="${e.slug}-complete-report.csv"`).send(eventReportCsv(e,orders));
 });
 
 app.post('/api/tickets/:code/transfer', auth, (req,res)=>{
