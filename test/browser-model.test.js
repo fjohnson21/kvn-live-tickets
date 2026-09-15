@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPassSelections, cartItemDisplay } from '../lib/browser-model.js';
+import { availabilityLabel, sizeOptionLabel } from '../public/catalog-view.js';
 
 test('increasing quantity creates independent optional pass selections', () => {
   assert.deepEqual(buildPassSelections(3, { mode: 'optional' }), [
@@ -51,4 +52,15 @@ test('included cart display does not add apparel price', () => {
   assert.equal(cartItemDisplay(product, {
     quantity: 1, ticketSelections: [{ apparelSelected: true, apparelSize: 'XXL' }]
   }).total, 8000);
+});
+
+test('public availability copy creates scarcity without exposing quantity', () => {
+  assert.equal(availabilityLabel({ available: 600 }), 'Early Release • Limited availability');
+  assert.equal(availabilityLabel({ available: 9 }), 'Early Release • Almost gone');
+  assert.equal(availabilityLabel({ available: 0 }), 'Sold out');
+});
+
+test('shirt sizes never expose inventory counts', () => {
+  assert.equal(sizeOptionLabel('XL'), 'XL');
+  assert.doesNotMatch(sizeOptionLabel('XL'), /\d|left|available/i);
 });

@@ -11,6 +11,10 @@ import { normalizeCustomer, validateCustomer } from './lib/customer.js';
 import { normalizeTicketCartItem } from './lib/checkout.js';
 import { finalizeOrderItems } from './lib/finalize.js';
 import { eventReportCsv } from './lib/report.js';
+import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
+
+const startupStore = readStore();
+if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
 
 const app = express();
 const port = process.env.PORT || 3000;
