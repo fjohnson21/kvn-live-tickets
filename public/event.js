@@ -1,3 +1,5 @@
+import { availabilityLabel, sizeOptionLabel } from './catalog-view.js';
+
 const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format((cents || 0) / 100);
 const esc = (value = '') => String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 let event, organization, cart = [];
@@ -33,13 +35,18 @@ async function init() {
   renderPage(); renderCart();
 }
 function products(type) { return event.products.filter(product => product.type === type); }
+function productDescription(description) {
+  const parts = String(description || '').split(' • ').filter(Boolean);
+  return `<ul class="pass-benefits">${parts.map((part, index) => `<li class="${index === 0 && /ROWS/.test(part) ? 'seating-highlight' : ''}">${esc(part)}</li>`).join('')}</ul>`;
+}
 function renderProducts(type) {
   const list = products(type); if (!list.length) return '<p class="muted">No items available in this section.</p>';
   return `<div class="products">${list.map(product => {
     const config = apparelConfig(product);
     const apparelCopy = product.type === 'ticket' && config.mode === 'included' ? `<p class="bundle-note">Includes ${esc(config.name)} — choose one size per pass.</p>` : product.type === 'ticket' && config.mode === 'optional' ? `<p class="bundle-note">Optional ${esc(config.name)}: ${money(config.price)} per pass.</p>` : '';
     const standaloneSize = product.options?.size ? `<select id="size-${product.id}">${product.options.size.map(size => `<option>${esc(size)}</option>`).join('')}</select>` : '<span></span>';
-    return `<article class="product-card"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3><p class="muted">${esc(product.description)}</p><small class="muted">${product.available} available</small>${apparelCopy}</div><div><div class="product-price">${money(product.price)}</div><div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<input type="number" id="qty-${product.id}" value="${product.minPerOrder || 1}" min="${product.minPerOrder || 1}" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}"><button class="btn primary" onclick="add('${product.id}')">Add</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
+    const soldOut = Number(product.available || 0) <= 0;
+    return `<article class="product-card"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3>${productDescription(product.description)}<small class="availability">${esc(availabilityLabel(product))}</small>${apparelCopy}</div><div><div class="product-price">${money(product.price)}</div><div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<input type="number" id="qty-${product.id}" value="${product.minPerOrder || 1}" min="${product.minPerOrder || 1}" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}" ${soldOut ? 'disabled' : ''}><button class="btn primary" onclick="add('${product.id}')" ${soldOut ? 'disabled' : ''}>${soldOut ? 'Sold Out' : 'Select Pass'}</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
   }).join('')}</div>`;
 }
 function renderPage() {
@@ -59,7 +66,7 @@ function renderPassEditor(productId) {
   const product = event.products.find(candidate => candidate.id === productId), config = apparelConfig(product), quantity = Math.max(1, Number(document.getElementById(`qty-${productId}`).value) || 1), selections = passSelections(quantity, config, draftSelections.get(productId));
   draftSelections.set(productId, selections); const target = document.getElementById(`passes-${productId}`);
   if (!target || config.mode === 'none') { if (target) target.innerHTML = ''; return; }
-  target.innerHTML = `<strong>Configure each pass</strong>${selections.map((selection, index) => `<div class="pass-row"><span>Pass ${index + 1}</span>${config.mode === 'optional' ? `<label class="check-row"><input type="checkbox" data-pass-selected="${index}" ${selection.apparelSelected ? 'checked' : ''}> Add ${esc(config.name)} (${money(config.price)})</label>` : `<span>${esc(config.name)} included</span>`}<label class="pass-size ${config.mode === 'optional' && !selection.apparelSelected ? 'hidden' : ''}">Size<select data-pass-size="${index}"><option value="">Select size</option>${config.sizes.map(size => `<option value="${esc(size)}" ${selection.apparelSize === size ? 'selected' : ''}>${esc(size)} (${Number(config.sizeInventory[size] ?? 0)} left)</option>`).join('')}</select></label></div>`).join('')}`;
+  target.innerHTML = `<strong>Choose a shirt size for each pass</strong>${selections.map((selection, index) => `<div class="pass-row"><span>Pass ${index + 1}</span>${config.mode === 'optional' ? `<label class="check-row"><input type="checkbox" data-pass-selected="${index}" ${selection.apparelSelected ? 'checked' : ''}> Add ${esc(config.name)} (${money(config.price)})</label>` : `<span>${esc(config.name)} included</span>`}<label class="pass-size ${config.mode === 'optional' && !selection.apparelSelected ? 'hidden' : ''}">Size<select data-pass-size="${index}"><option value="">Select size</option>${config.sizes.map(size => `<option value="${esc(size)}" ${selection.apparelSize === size ? 'selected' : ''}>${esc(sizeOptionLabel(size))}</option>`).join('')}</select></label></div>`).join('')}`;
   target.querySelectorAll('[data-pass-selected]').forEach(input => input.addEventListener('change', () => { const index = Number(input.dataset.passSelected); selections[index] = { apparelSelected: input.checked, apparelSize: input.checked ? selections[index].apparelSize : null }; draftSelections.set(productId, selections); renderPassEditor(productId); }));
   target.querySelectorAll('[data-pass-size]').forEach(select => select.addEventListener('change', () => { selections[Number(select.dataset.passSize)].apparelSize = select.value || null; draftSelections.set(productId, selections); }));
 }
