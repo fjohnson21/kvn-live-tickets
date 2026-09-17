@@ -98,7 +98,6 @@ async function processDiscipleCommission(d,order,event,session){
 app.get('/api/platform', (req,res)=>{ const d=readStore(); res.json({settings:d.settings, organizations:d.organizations.filter(o=>o.status==='approved').map(o=>({id:o.id,name:o.name,slug:o.slug})), events:d.events.filter(e=>e.status==='published').map(publicEvent)}); });
 app.get('/api/events/:slug', (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.slug===req.params.slug && x.status==='published'); if(!e) return res.status(404).json({error:'Event not found.'}); const org=d.organizations.find(o=>o.id===e.organizationId); res.json({event:publicEvent(e),organization:org&&{id:org.id,name:org.name,slug:org.slug}}); });
 
-app.post('/api/auth/demo', (req,res)=>{ const d=readStore(); const role=req.body.role==='owner'?'owner':'organizer'; const user=d.users.find(u=>u.role===role); const token=crypto.randomBytes(18).toString('hex'); sessions.set(token,user.id); res.json({token,user:safeUser(user)}); });
 app.get('/api/me', auth, (req,res)=>res.json({user:safeUser(req.user)}));
 
 app.post('/api/organizations/apply', (req,res)=>{ const d=readStore(); const name=String(req.body.name||'').trim(), email=String(req.body.email||'').trim(); if(!name||!email) return res.status(400).json({error:'Organization name and email are required.'}); const org={id:id('org'),name,slug:slugify(name),status:'pending',stripeAccountId:'',profile:{contactName:String(req.body.contactName||''),businessEmail:email,phone:String(req.body.phone||''),website:String(req.body.website||''),social:req.body.social||{},address:req.body.address||{},organizationType:String(req.body.organizationType||''),description:String(req.body.description||''),publicContact:Boolean(req.body.publicContact)},createdAt:new Date().toISOString()}; const user={id:id('usr'),name:req.body.contactName||name,email,role:'organizer',organizationId:org.id}; d.organizations.push(org); d.users.push(user); writeStore(d); res.status(201).json({organization:org,message:'Application submitted for KVN review.'}); });
@@ -229,12 +228,6 @@ function can(user, permission){
   return false;
 }
 function csvEscape(v=''){ const s=String(v??''); return `"${s.replaceAll('"','""')}"`; }
-
-app.post('/api/auth/demo-staff', (req,res)=>{
-  const d=readStore(); let user=d.users.find(u=>u.role==='staff');
-  if(!user){ user={id:'usr_demo_staff',name:'Door Team Demo',email:'staff@example.org',role:'staff',organizationId:'org_kvn',permissions:['checkin','attendees']}; d.users.push(user); writeStore(d); }
-  const token=crypto.randomBytes(18).toString('hex'); sessions.set(token,user.id); res.json({token,user:safeUser(user)});
-});
 
 app.post('/api/events/:id/media', auth, (req,res)=>{
   const d=readStore(); const e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'});
