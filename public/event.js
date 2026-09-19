@@ -1,4 +1,5 @@
 import { availabilityLabel, sizeOptionLabel } from './catalog-view.js';
+import { selectionQuantityState } from './quantity-model.js';
 
 const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format((cents || 0) / 100);
 const esc = (value = '') => String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
@@ -46,13 +47,18 @@ function renderProducts(type) {
     const apparelCopy = product.type === 'ticket' && config.mode === 'included' ? `<p class="bundle-note">Includes ${esc(config.name)} — choose one size per pass.</p>` : product.type === 'ticket' && config.mode === 'optional' ? `<p class="bundle-note">Optional ${esc(config.name)}: ${money(config.price)} per pass.</p>` : '';
     const standaloneSize = product.options?.size ? `<select id="size-${product.id}">${product.options.size.map(size => `<option>${esc(size)}</option>`).join('')}</select>` : '<span></span>';
     const soldOut = Number(product.available || 0) <= 0;
-    return `<article class="product-card"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3>${productDescription(product.description)}<small class="availability">${esc(availabilityLabel(product))}</small>${apparelCopy}</div><div><div class="product-price">${money(product.price)}</div><div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<input type="number" id="qty-${product.id}" value="${product.minPerOrder || 1}" min="${product.minPerOrder || 1}" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}" ${soldOut ? 'disabled' : ''}><button class="btn primary" onclick="add('${product.id}')" ${soldOut ? 'disabled' : ''}>${soldOut ? 'Sold Out' : 'Select Pass'}</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
+    return `<article class="product-card"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3>${productDescription(product.description)}<small class="availability">${esc(availabilityLabel(product))}</small>${apparelCopy}</div><div><div class="product-price">${money(product.price)}</div><div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<label class="quantity-control">Quantity<input type="number" id="qty-${product.id}" value="0" min="0" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}" inputmode="numeric" ${soldOut ? 'disabled' : ''}></label><button class="btn primary" id="select-${product.id}" onclick="add('${product.id}')" disabled>${soldOut ? 'Sold Out' : 'Select Pass'}</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
   }).join('')}</div>`;
 }
 function renderPage() {
   const blocks = event.layout || [], heroStyle = event.media?.hero ? `style="background-image:linear-gradient(#0009,#000d),url('${event.media.hero}')"` : '';
   page.innerHTML = `<section class="event-hero" ${heroStyle}><div class="shell"><span class="kicker">${esc(organization?.name || 'KVN PARTNER EVENT')}</span><h1>${esc(event.title)}</h1><p>${esc(event.description)}</p><div class="inline-actions"><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">Get Tickets</button><button class="btn" onclick="drawerOpen(true)">View Cart</button></div></div></section><div class="shell">${blocks.filter(block => block.type !== 'hero').map(blockHtml).join('')}</div>`;
-  for (const product of products('ticket')) { const quantity = Math.max(1, Number(document.getElementById(`qty-${product.id}`).value) || 1); draftSelections.set(product.id, passSelections(quantity, apparelConfig(product))); renderPassEditor(product.id); document.getElementById(`qty-${product.id}`).addEventListener('input', () => renderPassEditor(product.id)); }
+  for (const product of event.products) {
+    const input = document.getElementById(`qty-${product.id}`);
+    if (!input) continue;
+    input.addEventListener('input', () => refreshProductSelection(product.id));
+    refreshProductSelection(product.id);
+  }
 }
 function blockHtml(block) {
   if (block.type === 'tickets') return `<section class="layout-block" data-type="tickets"><span class="kicker">TICKETS</span><h2>${esc(block.title)}</h2><p class="muted">${esc(block.body)}</p>${renderProducts('ticket')}</section>`;
@@ -63,15 +69,24 @@ function blockHtml(block) {
   return `<section class="layout-block"><h2>${esc(block.title)}</h2><p class="muted">${esc(block.body)}</p></section>`;
 }
 function renderPassEditor(productId) {
-  const product = event.products.find(candidate => candidate.id === productId), config = apparelConfig(product), quantity = Math.max(1, Number(document.getElementById(`qty-${productId}`).value) || 1), selections = passSelections(quantity, config, draftSelections.get(productId));
+  const product = event.products.find(candidate => candidate.id === productId), config = apparelConfig(product), { quantity } = selectionQuantityState(document.getElementById(`qty-${productId}`).value, product), selections = passSelections(quantity, config, draftSelections.get(productId));
   draftSelections.set(productId, selections); const target = document.getElementById(`passes-${productId}`);
-  if (!target || config.mode === 'none') { if (target) target.innerHTML = ''; return; }
+  if (!target || quantity === 0 || config.mode === 'none') { if (target) target.innerHTML = ''; return; }
   target.innerHTML = `<strong>Choose a shirt size for each pass</strong>${selections.map((selection, index) => `<div class="pass-row"><span>Pass ${index + 1}</span>${config.mode === 'optional' ? `<label class="check-row"><input type="checkbox" data-pass-selected="${index}" ${selection.apparelSelected ? 'checked' : ''}> Add ${esc(config.name)} (${money(config.price)})</label>` : `<span>${esc(config.name)} included</span>`}<label class="pass-size ${config.mode === 'optional' && !selection.apparelSelected ? 'hidden' : ''}">Size<select data-pass-size="${index}"><option value="">Select size</option>${config.sizes.map(size => `<option value="${esc(size)}" ${selection.apparelSize === size ? 'selected' : ''}>${esc(sizeOptionLabel(size))}</option>`).join('')}</select></label></div>`).join('')}`;
   target.querySelectorAll('[data-pass-selected]').forEach(input => input.addEventListener('change', () => { const index = Number(input.dataset.passSelected); selections[index] = { apparelSelected: input.checked, apparelSize: input.checked ? selections[index].apparelSize : null }; draftSelections.set(productId, selections); renderPassEditor(productId); }));
   target.querySelectorAll('[data-pass-size]').forEach(select => select.addEventListener('change', () => { selections[Number(select.dataset.passSize)].apparelSize = select.value || null; draftSelections.set(productId, selections); }));
 }
+function refreshProductSelection(productId) {
+  const product = event.products.find(candidate => candidate.id === productId);
+  const input = document.getElementById(`qty-${productId}`), button = document.getElementById(`select-${productId}`);
+  if (!product || !input || !button) return;
+  const state = selectionQuantityState(input.value, product);
+  button.disabled = Number(product.available || 0) <= 0 || !state.canSelect;
+  if (product.type === 'ticket') renderPassEditor(productId);
+}
 window.add = function add(productId) {
-  const product = event.products.find(candidate => candidate.id === productId), quantity = Math.max(1, Math.min(Number(product.maxPerOrder || 20), Number(document.getElementById(`qty-${productId}`).value) || 1));
+  const product = event.products.find(candidate => candidate.id === productId), state = selectionQuantityState(document.getElementById(`qty-${productId}`).value, product), quantity = state.quantity;
+  if (!state.canSelect) { alert('Choose a valid quantity before selecting this pass.'); return; }
   if (product.type === 'ticket') {
     const ticketSelections = passSelections(quantity, apparelConfig(product), draftSelections.get(productId));
     if (ticketSelections.some(selection => selection.apparelSelected && !selection.apparelSize)) { alert('Choose a T-shirt size for every selected pass.'); return; }
