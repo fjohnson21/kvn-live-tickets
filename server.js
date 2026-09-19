@@ -12,6 +12,7 @@ import { normalizeTicketCartItem } from './lib/checkout.js';
 import { finalizeOrderItems } from './lib/finalize.js';
 import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
+import { createTicketConfirmationDispatcher } from './lib/email.js';
 
 const startupStore = readStore();
 if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
@@ -21,6 +22,7 @@ const port = process.env.PORT || 3000;
 const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const sessions = new Map();
+const dispatchTicketConfirmation = createTicketConfirmationDispatcher();
 const requireDir=p=>fs.mkdirSync(p,{recursive:true}); const pathJoin=path.join; const fsWrite=fs.writeFileSync;
 
 // Stripe webhook must receive the raw request body before JSON parsing.
@@ -170,17 +172,25 @@ app.post('/api/create-checkout-session', async (req,res)=>{
   }catch(err){console.error(err);res.status(500).json({error:err.message||'Unable to start checkout.'});}
 });
 
-async function sendConfirmation(order,event){
-  if(!process.env.RESEND_API_KEY || !order.buyerEmail) return;
-  const ticketHtml=(order.tickets||[]).map(t=>`<div style="padding:16px;border:1px solid #ddd;margin:12px 0"><strong>${t.ticketName}</strong><br>${t.code}<br><img width="160" height="160" alt="Ticket QR" src="${baseUrl}/api/tickets/${encodeURIComponent(t.code)}/qr.svg"></div>`).join('');
-  try { await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${process.env.RESEND_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.EMAIL_FROM||'KVN Live Tickets <onboarding@resend.dev>',to:[order.buyerEmail],subject:`Your tickets: ${event.title}`,html:`<h1>You're in.</h1><p>Order ${order.id}</p>${ticketHtml}<p>${event.venue} • ${event.location}</p>`})}); } catch(err){ console.error('Email delivery error',err.message); }
+async function sendConfirmation(order,event,{force=false}={}){
+  const result=await dispatchTicketConfirmation({order,event,apiKey:process.env.RESEND_API_KEY,from:process.env.EMAIL_FROM||'KVN Live Tickets <passes@tickets.kvnlive.com>',baseUrl,force});
+  if(result.status==='failed'||result.status==='not_configured') console.error('Confirmation email error',order.id,result.error);
+  else if(result.status==='sent') console.log('Confirmation email accepted',order.id,result.messageId);
+  return result;
 }
 
 async function finalizeSession(session){
   const d=readStore();
   const o=d.orders.find(x=>x.stripeSessionId===session.id);
-  if(!o||o.status==='paid') return o;
+  if(!o) return o;
   const e=d.events.find(x=>x.id===o.eventId);
+  if(o.status==='paid'){
+    if(o.confirmationEmail?.status!=='sent'){
+      await sendConfirmation(o,e);
+      writeStore(d);
+    }
+    return o;
+  }
   o.status='paid';
   o.buyerEmail=session.customer_details?.email||o.buyerEmail;
   o.buyerName=session.customer_details?.name||o.buyerName;
@@ -193,6 +203,7 @@ async function finalizeSession(session){
   }
   writeStore(d);
   await sendConfirmation(o,e);
+  writeStore(d);
   return o;
 }
 
@@ -255,7 +266,7 @@ app.get('/api/events/:id/attendees.csv', auth, (req,res)=>{
 app.post('/api/tickets/:code/transfer', auth, (req,res)=>{
   const d=readStore(); const code=String(req.params.code).toUpperCase(); for(const o of d.orders){ const t=o.tickets?.find(x=>x.code===code); if(!t) continue; const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)||!can(req.user,'attendees')) return res.status(403).json({error:'No access.'}); t.holderName=String(req.body.name||t.holderName); t.holderEmail=String(req.body.email||''); t.transferredAt=new Date().toISOString(); logAudit(d,req.user,'ticket.transfer','ticket',t.id,{code,email:t.holderEmail}); writeStore(d); return res.json({ticket:t}); } res.status(404).json({error:'Ticket not found.'});
 });
-app.post('/api/orders/:id/resend', auth, async (req,res)=>{ const d=readStore(); const o=d.orders.find(x=>x.id===req.params.id); if(!o) return res.status(404).json({error:'Order not found.'}); const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)||!can(req.user,'orders')) return res.status(403).json({error:'No access.'}); await sendConfirmation(o,e); logAudit(d,req.user,'order.resend','order',o.id); writeStore(d); res.json({ok:true}); });
+app.post('/api/orders/:id/resend', auth, async (req,res)=>{ const d=readStore(); const o=d.orders.find(x=>x.id===req.params.id); if(!o) return res.status(404).json({error:'Order not found.'}); const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)||!can(req.user,'orders')) return res.status(403).json({error:'No access.'}); const confirmationEmail=await sendConfirmation(o,e,{force:true}); logAudit(d,req.user,'order.resend','order',o.id,{emailStatus:confirmationEmail.status}); writeStore(d); res.status(confirmationEmail.status==='sent'?200:502).json({ok:confirmationEmail.status==='sent',confirmationEmail}); });
 
 app.post('/api/events/:id/custom-slug', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const slug=slugify(req.body.slug||''); if(slug.length<3) return res.status(400).json({error:'URL must be at least 3 characters.'}); if(d.events.some(x=>x.id!==e.id&&x.slug===slug)) return res.status(409).json({error:'That event URL is already taken.'}); const prior=e.slug; e.slug=slug;e.customSlug=slug;logAudit(d,req.user,'event.slug','event',e.id,{prior,slug});writeStore(d);res.json({event:e}); });
 
