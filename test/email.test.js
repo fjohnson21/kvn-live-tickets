@@ -55,9 +55,11 @@ test('successful confirmation records the provider message and includes launch d
   assert.deepEqual(request.body.to, ['guest@example.com']);
   assert.match(request.body.html, /ROWS 19–35/);
   assert.match(request.body.html, /Drop 001 T-shirt.*Size L/s);
+  assert.match(request.body.html, /included Drop 001 shirt will ship on October 15, 2026/i);
   assert.match(request.body.html, /Refunds are available only if the event is canceled\./);
   assert.match(request.body.html, /https:\/\/tickets\.example\.com\/api\/tickets\/KVN-ABC12345\/qr\.svg/);
   assert.match(request.body.text, /KVN-ABC12345/);
+  assert.match(request.body.text, /included Drop 001 shirt will ship on October 15, 2026/i);
   assert.match(request.body.text, /Ticket QR: https:\/\/tickets\.example\.com\/api\/tickets\/KVN-ABC12345\/qr\.svg/);
 });
 
