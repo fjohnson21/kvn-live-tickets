@@ -22,6 +22,11 @@ const port = process.env.PORT || 3000;
 const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const sessions = new Map();
+const loginAttempts = new Map();
+const sessionCookieName = '__Host-kvn_session';
+const sessionTtlMs = 12 * 60 * 60 * 1000;
+const loginWindowMs = 15 * 60 * 1000;
+const loginAttemptLimit = 5;
 const dispatchTicketConfirmation = createTicketConfirmationDispatcher();
 const requireDir=p=>fs.mkdirSync(p,{recursive:true}); const pathJoin=path.join; const fsWrite=fs.writeFileSync;
 
@@ -44,7 +49,11 @@ requireDir(uploadDir);
 app.use('/uploads', express.static(uploadDir));
 
 const safeUser = u => u ? ({id:u.id,name:u.name,email:u.email,role:u.role,organizationId:u.organizationId,permissions:u.permissions||[]}) : null;
-function auth(req,res,next){ const token=(req.headers.authorization||'').replace('Bearer ','') || String(req.query.token||''); const uid=sessions.get(token); const user=readStore().users.find(u=>u.id===uid); if(!user) return res.status(401).json({error:'Sign in required.'}); req.user=user; next(); }
+function cookieValue(req,name){ const prefix=`${name}=`; return String(req.headers.cookie||'').split(';').map(value=>value.trim()).find(value=>value.startsWith(prefix))?.slice(prefix.length)||''; }
+function sameSecret(left,right){ const a=crypto.createHash('sha256').update(String(left)).digest(),b=crypto.createHash('sha256').update(String(right)).digest(); return crypto.timingSafeEqual(a,b); }
+function sessionCookie(token,maxAge=Math.floor(sessionTtlMs/1000)){ return `${sessionCookieName}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`; }
+function pruneSessions(){ const now=Date.now(); for(const [token,session] of sessions)if(session.expiresAt<=now)sessions.delete(token); while(sessions.size>1000)sessions.delete(sessions.keys().next().value); }
+function auth(req,res,next){ res.set('Cache-Control','no-store'); const token=cookieValue(req,sessionCookieName),session=sessions.get(token); if(!session||session.expiresAt<=Date.now()){if(token)sessions.delete(token);return res.status(401).json({error:'Sign in required.'});} const user=readStore().users.find(u=>u.id===session.userId); if(!user) return res.status(401).json({error:'Sign in required.'}); req.user=user; req.sessionToken=token; next(); }
 function owner(req,res,next){ if(req.user?.role!=='owner') return res.status(403).json({error:'Owner access required.'}); next(); }
 function canManage(user,event){ return user.role==='owner' || ((user.role==='organizer'||user.role==='staff') && event.organizationId===user.organizationId); }
 function publicEvent(e,orders=[]){ return {...e, products:e.products.map(p=>{const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...p,available:Math.max(0,p.inventory-p.sold),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
@@ -101,6 +110,25 @@ async function processDiscipleCommission(d,order,event,session){
 app.get('/api/platform', (req,res)=>{ const d=readStore(); res.json({settings:d.settings, organizations:d.organizations.filter(o=>o.status==='approved').map(o=>({id:o.id,name:o.name,slug:o.slug})), events:d.events.filter(e=>e.status==='published').map(e=>publicEvent(e,d.orders))}); });
 app.get('/api/events/:slug', (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.slug===req.params.slug && x.status==='published'); if(!e) return res.status(404).json({error:'Event not found.'}); const org=d.organizations.find(o=>o.id===e.organizationId); res.json({event:publicEvent(e,d.orders),organization:org&&{id:org.id,name:org.name,slug:org.slug}}); });
 
+app.post('/api/auth/owner', (req,res)=>{
+  res.set('Cache-Control','no-store');
+  const configuredEmail=String(process.env.OWNER_EMAIL||'').trim().toLowerCase(),configuredPassword=String(process.env.OWNER_PASSWORD||'');
+  if(!configuredEmail||!configuredPassword) return res.status(503).json({error:'Owner sign-in is not configured.'});
+  const email=String(req.body.email||'').trim().toLowerCase(),password=String(req.body.password||'');
+  const attemptKey=`${req.ip}:${email}`,now=Date.now(); let attempts=loginAttempts.get(attemptKey);
+  if(attempts&&attempts.resetAt<=now){loginAttempts.delete(attemptKey);attempts=null;}
+  if(attempts?.count>=loginAttemptLimit){res.set('Retry-After',String(Math.ceil((attempts.resetAt-now)/1000)));return res.status(429).json({error:'Too many sign-in attempts. Try again later.'});}
+  if(!sameSecret(email,configuredEmail)||!sameSecret(password,configuredPassword)){const next=attempts||{count:0,resetAt:now+loginWindowMs};next.count+=1;loginAttempts.set(attemptKey,next);return res.status(401).json({error:'Email or password is incorrect.'});}
+  loginAttempts.delete(attemptKey);
+  const user=readStore().users.find(candidate=>candidate.role==='owner');
+  if(!user) return res.status(503).json({error:'Owner account is not configured.'});
+  pruneSessions();
+  const token=crypto.randomBytes(32).toString('hex');
+  sessions.set(token,{userId:user.id,expiresAt:Date.now()+sessionTtlMs});
+  res.setHeader('Set-Cookie',sessionCookie(token));
+  res.json({user:safeUser(user)});
+});
+app.post('/api/auth/logout', (req,res)=>{ const token=cookieValue(req,sessionCookieName); if(token)sessions.delete(token); res.setHeader('Set-Cookie',sessionCookie('',0)); res.json({ok:true}); });
 app.get('/api/me', auth, (req,res)=>res.json({user:safeUser(req.user)}));
 
 app.post('/api/organizations/apply', (req,res)=>{ const d=readStore(); const name=String(req.body.name||'').trim(), email=String(req.body.email||'').trim(); if(!name||!email) return res.status(400).json({error:'Organization name and email are required.'}); const org={id:id('org'),name,slug:slugify(name),status:'pending',stripeAccountId:'',profile:{contactName:String(req.body.contactName||''),businessEmail:email,phone:String(req.body.phone||''),website:String(req.body.website||''),social:req.body.social||{},address:req.body.address||{},organizationType:String(req.body.organizationType||''),description:String(req.body.description||''),publicContact:Boolean(req.body.publicContact)},createdAt:new Date().toISOString()}; const user={id:id('usr'),name:req.body.contactName||name,email,role:'organizer',organizationId:org.id}; d.organizations.push(org); d.users.push(user); writeStore(d); res.status(201).json({organization:org,message:'Application submitted for KVN review.'}); });
