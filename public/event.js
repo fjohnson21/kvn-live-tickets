@@ -1,4 +1,4 @@
-import { availabilityLabel, sizeOptionLabel } from './catalog-view.js';
+import { availabilityLabel, earlyReleasePriceSummary, sizeOptionLabel } from './catalog-view.js';
 import { selectionQuantityState } from './quantity-model.js';
 
 const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format((cents || 0) / 100);
@@ -46,8 +46,9 @@ function renderProducts(type) {
     const config = apparelConfig(product);
     const apparelCopy = product.type === 'ticket' && config.mode === 'included' ? `<p class="bundle-note">Includes ${esc(config.name)} — choose one size per pass.</p>` : product.type === 'ticket' && config.mode === 'optional' ? `<p class="bundle-note">Optional ${esc(config.name)}: ${money(config.price)} per pass.</p>` : '';
     const standaloneSize = product.options?.size ? `<select id="size-${product.id}">${product.options.size.map(size => `<option>${esc(size)}</option>`).join('')}</select>` : '<span></span>';
-    const soldOut = Number(product.available || 0) <= 0;
-    return `<article class="product-card"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3>${productDescription(product.description)}<small class="availability">${esc(availabilityLabel(product))}</small>${apparelCopy}</div><div><div class="product-price">${money(product.price)}</div><div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<label class="quantity-control">Quantity<input type="number" id="qty-${product.id}" value="0" min="0" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}" inputmode="numeric" ${soldOut ? 'disabled' : ''}></label><button class="btn primary" id="select-${product.id}" onclick="add('${product.id}')" disabled>${soldOut ? 'Sold Out' : 'Select Pass'}</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
+    const soldOut = Number(product.available || 0) <= 0, pricing = earlyReleasePriceSummary(product);
+    const priceHtml = pricing.active ? `<div class="product-price"><span class="regular-price">${money(pricing.regularPrice)}</span> ${money(pricing.currentPrice)}</div><div class="early-release-note">${esc(pricing.label)} • Applied automatically</div>` : `<div class="product-price">${money(pricing.currentPrice)}</div>`;
+    return `<article class="product-card"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3>${productDescription(product.description)}<small class="availability">${esc(availabilityLabel(product))}</small>${apparelCopy}</div><div>${priceHtml}<div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<label class="quantity-control">Quantity<input type="number" id="qty-${product.id}" value="0" min="0" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}" inputmode="numeric" ${soldOut ? 'disabled' : ''}></label><button class="btn primary" id="select-${product.id}" onclick="add('${product.id}')" disabled>${soldOut ? 'Sold Out' : 'Select Pass'}</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
   }).join('')}</div>`;
 }
 function renderPage() {
@@ -100,8 +101,9 @@ window.add = function add(productId) {
 };
 function itemSummary(product, item) {
   if (product.type !== 'ticket') return { lines: item.size ? [`Size ${item.size}`] : [], total: product.price * item.quantity };
-  const config = apparelConfig(product), selections = passSelections(item.quantity, config, item.ticketSelections), lines = config.mode === 'none' ? [] : selections.map((selection, index) => selection.apparelSelected ? `Pass ${index + 1}: ${config.name} — ${selection.apparelSize}` : `Pass ${index + 1}: No apparel`), optionalCount = config.mode === 'optional' ? selections.filter(selection => selection.apparelSelected).length : 0;
-  return { lines, total: product.price * item.quantity + config.price * optionalCount };
+  const config = apparelConfig(product), selections = passSelections(item.quantity, config, item.ticketSelections), pricing = earlyReleasePriceSummary(product), discountedQuantity = pricing.active ? Math.min(item.quantity, Number(product.earlyRelease.remaining) || 0) : 0, lines = config.mode === 'none' ? [] : selections.map((selection, index) => selection.apparelSelected ? `Pass ${index + 1}: ${config.name} — ${selection.apparelSize}` : `Pass ${index + 1}: No apparel`), optionalCount = config.mode === 'optional' ? selections.filter(selection => selection.apparelSelected).length : 0;
+  if(discountedQuantity>0)lines.unshift(`${discountedQuantity} pass${discountedQuantity===1?'':'es'} receive${discountedQuantity===1?'s':''} the automatic first-200 price`);
+  return { lines, total: pricing.currentPrice * discountedQuantity + pricing.regularPrice * (item.quantity-discountedQuantity) + config.price * optionalCount };
 }
 function save() { localStorage.setItem(`cart_${event.id}`, JSON.stringify(cart)); trackCart(); }
 function renderCart() {

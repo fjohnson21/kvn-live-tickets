@@ -33,6 +33,10 @@ test('synchronizes the KVN Live event to the approved two-pass catalog', () => {
   assert.ok(event.products.every(product => product.includedApparel.mode === 'included'));
   assert.ok(event.products.every(product => product.includedApparel.name.includes('Not Self Made')));
   assert.ok(event.products.every(product => product.includedApparel.sizes.includes('XXXXL')));
+  assert.deepEqual(event.products.map(product => product.earlyRelease), [
+    { enabled: true, discountAmount: 1000, unitLimit: 200 },
+    { enabled: true, discountAmount: 1000, unitLimit: 200 }
+  ]);
   assert.ok(event.layout.every(block => block.type !== 'apparel'));
   assert.match(event.layout.map(block => block.body).join(' '), /Acts 2:44/);
   assert.match(event.layout.map(block => block.body).join(' '), /event is canceled/i);

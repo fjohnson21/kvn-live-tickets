@@ -9,7 +9,7 @@ test('complete report emits one row per pass with collected and derived data', (
   const order = {
     id: 'order-1', status: 'paid', createdAt: '2026-08-30T12:00:00Z', paidAt: '2026-08-30T12:01:00Z',
     buyerName: 'A Buyer', buyerEmail: 'a@example.com', customer: { name: 'A Buyer', email: 'a@example.com', cellPhone: '404-555-1212', billingAddress: address, mailingSameAsBilling: true, mailingAddress: address },
-    amountSubtotal: 11750, groupDiscountAmount: 0, promoDiscountAmount: 500, discountAmount: 500, taxAmount: 900,
+    amountSubtotal: 11750, groupDiscountAmount: 0, earlyReleaseDiscountAmount: 1000, promoDiscountAmount: 500, discountAmount: 500, taxAmount: 900,
     feeBreakdown: { kvnFee: 350, merchantFee: 410, buyerKvnFee: 350, buyerMerchantFee: 410 }, amountTotal: 12910,
     discipleCode: 'FAITH', tickets: [
       { code: 'CODE-1', productId: 'ticket-1', ticketName: 'Weekend Pass', holderName: 'A Buyer', holderEmail: '', apparel: { mode: 'optional', name: 'KVN Tee', size: 'M', unitAmount: 1750, fulfilled: false }, checkedIn: true, checkedInAt: '2026-09-01T10:00:00Z', transferredAt: null },
@@ -26,6 +26,7 @@ test('complete report emits one row per pass with collected and derived data', (
   assert.equal(first['Apparel Mode'], 'optional');
   assert.equal(first['Apparel Size'], 'M');
   assert.equal(first['Apparel Unit Price'], 1750);
+  assert.equal(first['First 200 Discount'], 1000);
   assert.equal(first['Checked In'], 'Yes');
   assert.equal(first['Order Total'], 12910);
   const second = Object.fromEntries(EVENT_REPORT_HEADERS.map((header, index) => [header, rows[1][index]]));
