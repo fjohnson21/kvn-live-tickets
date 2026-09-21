@@ -172,11 +172,11 @@ test('concurrent completion requests share one provider send and both receive th
 });
 
 
-test('Disciple welcome email includes personal link and intentional first post instructions', async () => {
+test('Disciple welcome email includes launch instructions without promising compensation', async () => {
   const { buildDiscipleWelcome } = await import('../lib/email.js');
   const content=buildDiscipleWelcome({disciple:{name:'Briannah Cooper'},link:'https://disciple.kvnlive.com/briannahcooper'});
   assert.match(content.text,/disciple\.kvnlive\.com\/briannahcooper/);
   assert.match(content.text,/Link in bio/i);
   assert.match(content.text,/Add your personal Disciple link to your Instagram\/social bio/i);
-  assert.match(content.text,/10% of eligible gross item sales/i);
+  assert.doesNotMatch(content.text,/commission|compensation|payout/i);
 });
