@@ -24,3 +24,13 @@ test('application sync creates exactly one Disciple and is idempotent by applica
 test('application reference is required',()=>{
   assert.throws(()=>upsertDiscipleFromApplication(makeStore(),{name:'Briannah Cooper',email:'x@example.com'},{id:()=> 'x'}),/applicationReference/);
 });
+
+test('application sync defaults a new Disciple to 10% when no rate is supplied',()=>{
+  const store={settings:{},disciples:[]};
+  const {disciple}=upsertDiscipleFromApplication(store,{
+    applicationReference:'KVN-D-DEFAULT',
+    name:'Briannah Cooper',
+    email:'briannah@example.com'
+  },{id:()=> 'dsc_default',now:()=> '2026-09-21T19:00:00.000Z'});
+  assert.equal(disciple.defaultCommissionPercent,10);
+});
