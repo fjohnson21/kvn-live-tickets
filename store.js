@@ -12,8 +12,8 @@ const defaultFeeSettings=()=>({strategy:'buyer',kvnPercent:2.95,kvnFixedPerTicke
 export function readStore(){
   const d=JSON.parse(fs.readFileSync(file,'utf8'));
   d.users ||= []; d.organizations ||= []; d.events ||= []; d.orders ||= []; d.discounts ||= [];
-  d.staff ||= []; d.payouts ||= []; d.auditLogs ||= []; d.abandonedCarts ||= []; d.media ||= []; d.disciples ||= []; d.discipleCommissions ||= []; d.disciplePayouts ||= [];
-  d.settings ||= {}; d.settings.platformFeePercent ??= 5; d.settings.taxRatePercent ??= 0; d.settings.discipleCookieDays ??= 30; d.settings.defaultDiscipleCommissionPercent ??= 10; d.settings.disciplePayoutDay ??= 15; d.settings.discipleMinimumPayout ??= 0; d.settings.disciplePayoutMode ||= 'manual';
+  d.staff ||= []; d.payouts ||= []; d.auditLogs ||= []; d.abandonedCarts ||= []; d.media ||= []; d.disciples ||= []; d.discipleApplications ||= []; d.discipleCommissions ||= []; d.disciplePayouts ||= [];
+  d.settings ||= {}; d.settings.platformFeePercent ??= 5; d.settings.taxRatePercent ??= 0; d.settings.discipleCookieDays ??= 30; d.settings.defaultDiscipleCommissionPercent ??= 0; d.settings.disciplePayoutDay ??= 15; d.settings.discipleMinimumPayout ??= 0; d.settings.disciplePayoutMode ||= 'manual';
   d.settings.kvnTicketFeePercent ??= 2.95; d.settings.kvnTicketFeeFixed ??= 195; d.settings.merchantFeePercent ??= 2.9; d.settings.merchantFeeFixed ??= 30;
   d.settings.feePlans ||= [{id:'standard',name:'Standard',percent:5,fixed:0},{id:'partner',name:'Kingdom Partner',percent:3.5,fixed:0},{id:'enterprise',name:'Enterprise',percent:2.5,fixed:25}];
   d.organizations.forEach(o=>{ o.feePlanId ||= 'standard'; o.payoutSchedule ||= 'weekly'; o.onboarding ||= {profile:true,branding:false,payouts:false,firstEvent:false}; o.profile ||= {contactName:'',businessEmail:'',phone:'',website:'',social:{instagram:'',facebook:'',tiktok:'',youtube:''},address:{street:'',city:'',state:'',postalCode:'',country:'United States'},organizationType:'',description:'',publicContact:false}; });
