@@ -12,7 +12,7 @@ import { applyEarlyReleasePricing, checkoutExpiration, normalizeTicketCartItem, 
 import { finalizeOrderItems } from './lib/finalize.js';
 import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
-import { createTicketConfirmationDispatcher } from './lib/email.js';
+import { createTicketConfirmationDispatcher, sendDiscipleWelcome } from './lib/email.js';
 
 const startupStore = readStore();
 if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
@@ -135,12 +135,12 @@ app.post('/api/events/:id/products', auth, (req,res)=>{ const d=readStore(); con
 app.put('/api/events/:id/products/:productId', auth, (req,res)=>{ const d=readStore(),e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const p=e.products.find(x=>x.id===req.params.productId); if(!p)return res.status(404).json({error:'Product not found.'}); for(const k of ['name','description','price','inventory','badge','minPerOrder','maxPerOrder','quantityStep']) if(req.body[k]!==undefined)p[k]=req.body[k]; if(req.body.options)p.options=req.body.options;if(req.body.group)p.group={...(p.group||{}),...req.body.group};try{if(p.type==='ticket'&&req.body.includedApparel)applyApparelConfig(p,req.body.includedApparel);}catch(err){return res.status(400).json({error:err.message});}writeStore(d);res.json({product:p,event:e}); });
 
 
-app.post('/api/disciples', auth, (req,res)=>{
+app.post('/api/disciples', auth, async (req,res)=>{
   const d=readStore(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId;
   const code=String(req.body.code||req.body.name||'DISCIPLE').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,24);
   if(!code) return res.status(400).json({error:'Disciple code required.'}); if(d.disciples.some(x=>x.code===code)) return res.status(409).json({error:'That Disciple code already exists.'});
   const disciple={id:id('dsc'),name:String(req.body.name||'Disciple'),email:String(req.body.email||''),code,status:'active',organizationId:orgId,defaultCommissionPercent:Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent ?? d.settings.defaultDiscipleCommissionPercent ?? 10))),eventRates:[],payoutMethod:String(req.body.payoutMethod||'manual'),payoutNotes:String(req.body.payoutNotes||''),createdAt:new Date().toISOString()};
-  d.disciples.push(disciple); writeStore(d); res.status(201).json({disciple,trackingUrl:`${baseUrl}/?disciple=${encodeURIComponent(code)}`});
+  d.disciples.push(disciple); writeStore(d); const handle=slugify(req.body.handle||disciple.name||code).replace(/-/g,''); const trackingUrl=`https://disciple.kvnlive.com/${encodeURIComponent(handle)}`; disciple.handle=handle; const welcomeEmail=await sendDiscipleWelcome({disciple,link:trackingUrl,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'}); disciple.welcomeEmail=welcomeEmail; writeStore(d); res.status(201).json({disciple,trackingUrl,welcomeEmail});
 });
 app.put('/api/disciples/:id', auth, (req,res)=>{
   const d=readStore(),x=d.disciples.find(v=>v.id===req.params.id); if(!x||!(req.user.role==='owner'||x.organizationId===req.user.organizationId)) return res.status(404).json({error:'Disciple not found.'});
