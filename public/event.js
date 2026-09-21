@@ -7,7 +7,12 @@ let event, organization, cart = [];
 const draftSelections = new Map();
 const cartId = localStorage.getItem('kvn_cart_id') || `cart_${Math.random().toString(36).slice(2)}`;
 localStorage.setItem('kvn_cart_id', cartId);
-const slug = new URLSearchParams(location.search).get('slug');
+const params = new URLSearchParams(location.search);
+const slug = params.get('slug');
+const discipleParam = String(params.get('disciple') || '').toUpperCase();
+const discipleWindowMs = 30 * 24 * 60 * 60 * 1000;
+if (discipleParam) { localStorage.setItem('kvn_disciple_code', discipleParam); localStorage.setItem('kvn_disciple_at', String(Date.now())); }
+function activeDiscipleCode() { const code=localStorage.getItem('kvn_disciple_code')||'',at=Number(localStorage.getItem('kvn_disciple_at')||0); if(!code||!at||Date.now()-at>discipleWindowMs){localStorage.removeItem('kvn_disciple_code');localStorage.removeItem('kvn_disciple_at');return '';} return code; }
 
 function apparelConfig(product) {
   const source = product.includedApparel || {};
@@ -121,5 +126,5 @@ function syncMailing() { const same = mailingSameAsBilling.checked; for (const s
 mailingSameAsBilling.addEventListener('change', syncMailing); addressSuffixes.forEach(suffix => document.getElementById(`billing${suffix}`).addEventListener('input', syncMailing)); syncMailing();
 function customerPayload() { return { name: buyerName.value, email: buyerEmail.value, cellPhone: buyerPhone.value, billingAddress: readAddress('billing'), mailingSameAsBilling: mailingSameAsBilling.checked, mailingAddress: readAddress('mailing') }; }
 function validateCheckoutCustomer(customer) { if (!customer.name.trim()) return 'Enter your full name.'; if (!/^\S+@\S+\.\S+$/.test(customer.email)) return 'Enter a valid email.'; if (!customer.cellPhone.trim()) return 'Enter your cell phone number.'; for (const [label, address] of [['Billing', customer.billingAddress], ['Mailing', customer.mailingAddress]]) for (const key of ['line1', 'city', 'state', 'postalCode', 'country']) if (!String(address[key] || '').trim()) return `${label} address is incomplete.`; return ''; }
-checkout.onclick = async () => { checkoutError.textContent = ''; if (!cart.length) { checkoutError.textContent = 'Add at least one item.'; return; } syncMailing(); const customer = customerPayload(), customerError = validateCheckoutCustomer(customer); if (customerError) { checkoutError.textContent = customerError; return; } checkout.disabled = true; const response = await fetch('/api/create-checkout-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eventId: event.id, cart, customer, discountCode: discountCode.value, cartId }) }), data = await response.json(); if (response.ok) location.href = data.url; else { checkoutError.textContent = data.error; checkout.disabled = false; } };
+checkout.onclick = async () => { checkoutError.textContent = ''; if (!cart.length) { checkoutError.textContent = 'Add at least one item.'; return; } syncMailing(); const customer = customerPayload(), customerError = validateCheckoutCustomer(customer); if (customerError) { checkoutError.textContent = customerError; return; } checkout.disabled = true; const response = await fetch('/api/create-checkout-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eventId: event.id, cart, customer, discountCode: discountCode.value, cartId, discipleCode: activeDiscipleCode() }) }), data = await response.json(); if (response.ok) location.href = data.url; else { checkoutError.textContent = data.error; checkout.disabled = false; } };
 init();

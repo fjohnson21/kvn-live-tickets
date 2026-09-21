@@ -170,3 +170,13 @@ test('concurrent completion requests share one provider send and both receive th
   assert.equal(firstOrder.confirmationEmail.messageId, 'email_once');
   assert.equal(secondOrder.confirmationEmail.messageId, 'email_once');
 });
+
+
+test('Disciple welcome email includes personal link and intentional first post instructions', async () => {
+  const { buildDiscipleWelcome } = await import('../lib/email.js');
+  const content=buildDiscipleWelcome({disciple:{name:'Briannah Cooper'},link:'https://disciple.kvnlive.com/briannahcooper'});
+  assert.match(content.text,/disciple\.kvnlive\.com\/briannahcooper/);
+  assert.match(content.text,/Link in bio/i);
+  assert.match(content.text,/Add your personal Disciple link to your Instagram\/social bio/i);
+  assert.match(content.text,/10% of eligible gross item sales/i);
+});
