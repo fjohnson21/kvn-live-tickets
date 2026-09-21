@@ -87,25 +87,14 @@ async function processDiscipleCommission(d,order,event,session){
   const disciple=d.disciples.find(x=>x.id===order.discipleId && x.status==='active'); if(!disciple) return;
   const rate=discipleRate(disciple,event.id), base=eligibleCommissionBase(order), amount=Math.round(base*rate/100);
   if(amount<=0) return;
-  const commission={id:id('com'),discipleId:disciple.id,eventId:event.id,orderId:order.id,ratePercent:rate,eligibleBase:base,amount,status:'earned',stripeTransferId:'',stripePayoutId:'',createdAt:new Date().toISOString()};
+  const now=new Date();
+  const commission={id:id('com'),discipleId:disciple.id,eventId:event.id,orderId:order.id,ratePercent:rate,eligibleBase:base,amount,status:'pending',sourceType:'event_order',earnedAt:now.toISOString(),payoutDate:nextMonthlyPayoutDate(now),paidAt:'',paymentReference:'',createdAt:now.toISOString()};
   d.discipleCommissions.push(commission); order.discipleCommissionId=commission.id; order.discipleCommissionAmount=amount;
-  // Immediate money movement: transfer commission to the Disciple's connected Stripe account after the charge settles.
-  // If the connected account and debit card are eligible for Instant Payouts, attempt an instant payout too.
-  if(stripe && disciple.stripeAccountId && session?.payment_intent){
-    try{
-      const pi=await stripe.paymentIntents.retrieve(session.payment_intent); const sourceCharge=typeof pi.latest_charge==='string'?pi.latest_charge:pi.latest_charge?.id; const transfer=await stripe.transfers.create({amount,currency:'usd',destination:disciple.stripeAccountId,...(sourceCharge?{source_transaction:sourceCharge}:{}),metadata:{order_id:order.id,disciple_id:disciple.id,commission_id:commission.id}});
-      commission.stripeTransferId=transfer.id; commission.status='transferred';
-      if(disciple.instantPayoutEnabled){
-        try{
-          const payout=await stripe.payouts.create({amount,currency:'usd',method:'instant',metadata:{order_id:order.id,commission_id:commission.id}},{stripeAccount:disciple.stripeAccountId});
-          commission.stripePayoutId=payout.id; commission.status='instant_paid';
-          d.disciplePayouts.push({id:id('dsp'),discipleId:disciple.id,commissionId:commission.id,amount,status:'instant_paid',stripePayoutId:payout.id,createdAt:new Date().toISOString()});
-        }catch(err){ commission.payoutNote=`Transferred to Stripe balance; Instant Payout unavailable: ${err.message}`; }
-      }
-    }catch(err){ commission.status='payout_pending'; commission.payoutNote=`Commission earned; automatic transfer pending: ${err.message}`; }
-  } else commission.payoutNote='Commission earned. Connect a Disciple Stripe account to enable automatic real-time transfer.';
 }
-
+function nextMonthlyPayoutDate(date=new Date()){
+  const y=date.getUTCFullYear(),m=date.getUTCMonth();
+  return new Date(Date.UTC(m===11?y+1:y,m===11?0:m+1,15)).toISOString().slice(0,10);
+}
 
 app.get('/api/platform', (req,res)=>{ const d=readStore(); res.json({settings:d.settings, organizations:d.organizations.filter(o=>o.status==='approved').map(o=>({id:o.id,name:o.name,slug:o.slug})), events:d.events.filter(e=>e.status==='published').map(e=>publicEvent(e,d.orders))}); });
 app.get('/api/events/:slug', (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.slug===req.params.slug && x.status==='published'); if(!e) return res.status(404).json({error:'Event not found.'}); const org=d.organizations.find(o=>o.id===e.organizationId); res.json({event:publicEvent(e,d.orders),organization:org&&{id:org.id,name:org.name,slug:org.slug}}); });
@@ -150,18 +139,31 @@ app.post('/api/disciples', auth, (req,res)=>{
   const d=readStore(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId;
   const code=String(req.body.code||req.body.name||'DISCIPLE').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,24);
   if(!code) return res.status(400).json({error:'Disciple code required.'}); if(d.disciples.some(x=>x.code===code)) return res.status(409).json({error:'That Disciple code already exists.'});
-  const disciple={id:id('dsc'),name:String(req.body.name||'Disciple'),email:String(req.body.email||''),code,status:'active',organizationId:orgId,defaultCommissionPercent:Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent ?? d.settings.defaultDiscipleCommissionPercent ?? 10))),eventRates:[],stripeAccountId:String(req.body.stripeAccountId||''),instantPayoutEnabled:req.body.instantPayoutEnabled!==false,createdAt:new Date().toISOString()};
+  const disciple={id:id('dsc'),name:String(req.body.name||'Disciple'),email:String(req.body.email||''),code,status:'active',organizationId:orgId,defaultCommissionPercent:Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent ?? d.settings.defaultDiscipleCommissionPercent ?? 10))),eventRates:[],payoutMethod:String(req.body.payoutMethod||'manual'),payoutNotes:String(req.body.payoutNotes||''),createdAt:new Date().toISOString()};
   d.disciples.push(disciple); writeStore(d); res.status(201).json({disciple,trackingUrl:`${baseUrl}/?disciple=${encodeURIComponent(code)}`});
 });
 app.put('/api/disciples/:id', auth, (req,res)=>{
   const d=readStore(),x=d.disciples.find(v=>v.id===req.params.id); if(!x||!(req.user.role==='owner'||x.organizationId===req.user.organizationId)) return res.status(404).json({error:'Disciple not found.'});
-  for(const k of ['name','email','status','stripeAccountId','instantPayoutEnabled']) if(req.body[k]!==undefined)x[k]=req.body[k]; if(req.body.defaultCommissionPercent!==undefined)x.defaultCommissionPercent=Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent)||0)); writeStore(d);res.json({disciple:x});
+  for(const k of ['name','email','status','payoutMethod','payoutNotes']) if(req.body[k]!==undefined)x[k]=req.body[k]; if(req.body.defaultCommissionPercent!==undefined)x.defaultCommissionPercent=Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent)||0)); writeStore(d);res.json({disciple:x});
 });
 app.post('/api/disciples/:id/event-rate', auth, (req,res)=>{
   const d=readStore(),x=d.disciples.find(v=>v.id===req.params.id),e=d.events.find(v=>v.id===req.body.eventId); if(!x||!e||!(req.user.role==='owner'||(x.organizationId===req.user.organizationId&&e.organizationId===req.user.organizationId))) return res.status(403).json({error:'No access.'});
   const percent=Math.max(0,Math.min(100,Number(req.body.percent)||0)); x.eventRates ||= []; const prior=x.eventRates.find(v=>v.eventId===e.id); if(prior)prior.percent=percent;else x.eventRates.push({eventId:e.id,percent}); writeStore(d);res.json({disciple:x});
 });
 app.get('/api/disciples/:code/resolve',(req,res)=>{ const d=readStore(),x=d.disciples.find(v=>v.code===String(req.params.code||'').toUpperCase()&&v.status==='active'); if(!x)return res.status(404).json({error:'Disciple not found.'}); res.json({disciple:{id:x.id,name:x.name,code:x.code}}); });
+app.post('/api/disciple-commissions/:id/mark-paid', auth, owner, (req,res)=>{
+  const d=readStore(),c=d.discipleCommissions.find(x=>x.id===req.params.id); if(!c)return res.status(404).json({error:'Commission not found.'});
+  if(c.status==='reversed')return res.status(409).json({error:'Reversed commission cannot be paid.'});
+  c.status='paid'; c.paidAt=new Date().toISOString(); c.paymentReference=String(req.body.paymentReference||'manual');
+  d.disciplePayouts.push({id:id('dsp'),discipleId:c.discipleId,commissionId:c.id,amount:c.amount,status:'paid',paymentReference:c.paymentReference,createdAt:c.paidAt});
+  writeStore(d); res.json({commission:c});
+});
+app.post('/api/disciple-commissions/:id/reverse', auth, owner, (req,res)=>{
+  const d=readStore(),c=d.discipleCommissions.find(x=>x.id===req.params.id); if(!c)return res.status(404).json({error:'Commission not found.'});
+  if(c.status==='paid')return res.status(409).json({error:'Paid commission requires a manual adjustment.'});
+  c.status='reversed'; c.reversedAt=new Date().toISOString(); c.reversalReason=String(req.body.reason||'refund_or_chargeback');
+  writeStore(d); res.json({commission:c});
+});
 
 app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const disc={id:id('disc'),eventId:e.id,code:String(req.body.code||'').toUpperCase().replace(/\s/g,''),type:req.body.type==='fixed'?'fixed':'percent',value:Math.max(0,Number(req.body.value)||0),active:true,maxUses:Math.max(1,Number(req.body.maxUses)||100),uses:0}; if(!disc.code) return res.status(400).json({error:'Code required.'}); d.discounts.push(disc); writeStore(d); res.status(201).json({discount:disc}); });
 
