@@ -13,6 +13,7 @@ import { finalizeOrderItems } from './lib/finalize.js';
 import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
 import { createTicketConfirmationDispatcher, sendDiscipleWelcome } from './lib/email.js';
+import { upsertDiscipleFromApplication } from './lib/disciple-sync.js';
 
 const startupStore = readStore();
 if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
@@ -134,6 +135,36 @@ app.post('/api/events/:id/status', auth, owner, (req,res)=>{ const d=readStore()
 app.post('/api/events/:id/products', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(404).json({error:'Event not found.'}); const type=req.body.type==='apparel'?'apparel':'ticket'; const sizes=Array.isArray(req.body.options?.size)?req.body.options.size:[]; const p={id:id('prd'),type,name:req.body.name||'New Ticket',description:req.body.description||'',price:Math.max(0,Number(req.body.price)||0),inventory:Math.max(0,Number(req.body.inventory)||0),sold:0,badge:req.body.badge||'',options:type==='apparel'?{size:sizes}:undefined,minPerOrder:Math.max(1,Number(req.body.minPerOrder)||1),maxPerOrder:Math.max(1,Number(req.body.maxPerOrder)||20),quantityStep:Math.max(1,Number(req.body.quantityStep)||1),group:{enabled:Boolean(req.body.group?.enabled),minQty:Math.max(1,Number(req.body.group?.minQty)||1),maxQty:Math.max(1,Number(req.body.group?.maxQty)||999),discountType:req.body.group?.discountType==='fixed'?'fixed':'percent',discountValue:Math.max(0,Number(req.body.group?.discountValue)||0),tiers:Array.isArray(req.body.group?.tiers)?req.body.group.tiers:[]}}; try{if(type==='ticket')applyApparelConfig(p,req.body.includedApparel);}catch(err){return res.status(400).json({error:err.message});} e.products.push(p); e.updatedAt=new Date().toISOString(); writeStore(d); res.status(201).json({product:p,event:e}); });
 app.put('/api/events/:id/products/:productId', auth, (req,res)=>{ const d=readStore(),e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const p=e.products.find(x=>x.id===req.params.productId); if(!p)return res.status(404).json({error:'Product not found.'}); for(const k of ['name','description','price','inventory','badge','minPerOrder','maxPerOrder','quantityStep']) if(req.body[k]!==undefined)p[k]=req.body[k]; if(req.body.options)p.options=req.body.options;if(req.body.group)p.group={...(p.group||{}),...req.body.group};try{if(p.type==='ticket'&&req.body.includedApparel)applyApparelConfig(p,req.body.includedApparel);}catch(err){return res.status(400).json({error:err.message});}writeStore(d);res.json({product:p,event:e}); });
 
+
+function validSyncSecret(req){
+  const expected=String(process.env.DISCIPLE_SYNC_SECRET||'');
+  const supplied=String(req.get('x-kvn-disciple-sync-secret')||'');
+  if(!expected||!supplied)return false;
+  const a=Buffer.from(expected),b=Buffer.from(supplied);
+  return a.length===b.length&&crypto.timingSafeEqual(a,b);
+}
+
+app.post('/api/integrations/disciples/approve', async (req,res)=>{
+  try{
+    if(!validSyncSecret(req))return res.status(401).json({error:'Invalid integration secret.'});
+    const d=readStore();
+    const result=upsertDiscipleFromApplication(d,req.body,{id});
+    const disciple=result.disciple;
+    const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(disciple.handle);
+    if(result.created||req.body.resendWelcome===true){
+      disciple.welcomeEmail=await sendDiscipleWelcome({
+        disciple,
+        link:trackingUrl,
+        apiKey:process.env.RESEND_API_KEY,
+        from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'
+      });
+    }
+    writeStore(d);
+    res.status(result.created?201:200).json({ok:true,created:result.created,disciple,trackingUrl,welcomeEmail:disciple.welcomeEmail||null});
+  }catch(err){
+    res.status(err.statusCode||500).json({error:err.message||'Unable to sync approved Disciple application.'});
+  }
+});
 
 app.post('/api/disciples', auth, async (req,res)=>{
   const d=readStore(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId;
