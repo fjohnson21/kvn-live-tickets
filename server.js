@@ -138,9 +138,17 @@ app.put('/api/events/:id/products/:productId', auth, (req,res)=>{ const d=readSt
 app.post('/api/disciples', auth, async (req,res)=>{
   const d=readStore(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId;
   const code=String(req.body.code||req.body.name||'DISCIPLE').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,24);
-  if(!code) return res.status(400).json({error:'Disciple code required.'}); if(d.disciples.some(x=>x.code===code)) return res.status(409).json({error:'That Disciple code already exists.'});
-  const disciple={id:id('dsc'),name:String(req.body.name||'Disciple'),email:String(req.body.email||''),code,status:'active',organizationId:orgId,defaultCommissionPercent:Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent ?? d.settings.defaultDiscipleCommissionPercent ?? 10))),eventRates:[],payoutMethod:String(req.body.payoutMethod||'manual'),payoutNotes:String(req.body.payoutNotes||''),createdAt:new Date().toISOString()};
-  d.disciples.push(disciple); writeStore(d); const handle=slugify(req.body.handle||disciple.name||code).replace(/-/g,''); const trackingUrl=`https://disciple.kvnlive.com/${encodeURIComponent(handle)}`; disciple.handle=handle; const welcomeEmail=await sendDiscipleWelcome({disciple,link:trackingUrl,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'}); disciple.welcomeEmail=welcomeEmail; writeStore(d); res.status(201).json({disciple,trackingUrl,welcomeEmail});
+  if(!code) return res.status(400).json({error:'Disciple code required.'});
+  if(d.disciples.some(x=>x.code===code)) return res.status(409).json({error:'That Disciple code already exists.'});
+  const handle=slugify(req.body.handle||req.body.name||code).replace(/-/g,'').slice(0,40);
+  if(!handle) return res.status(400).json({error:'Disciple handle required.'});
+  if(d.disciples.some(x=>String(x.handle||'').toLowerCase()===handle.toLowerCase())) return res.status(409).json({error:'That Disciple link is already taken.'});
+  const disciple={id:id('dsc'),name:String(req.body.name||'Disciple'),email:String(req.body.email||''),code,handle,status:'active',organizationId:orgId,defaultCommissionPercent:Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent ?? d.settings.defaultDiscipleCommissionPercent ?? 10))),eventRates:[],payoutMethod:String(req.body.payoutMethod||'manual'),payoutNotes:String(req.body.payoutNotes||''),createdAt:new Date().toISOString()};
+  d.disciples.push(disciple); writeStore(d);
+  const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(handle);
+  const welcomeEmail=await sendDiscipleWelcome({disciple,link:trackingUrl,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'});
+  disciple.welcomeEmail=welcomeEmail; writeStore(d);
+  res.status(201).json({disciple,trackingUrl,welcomeEmail});
 });
 app.put('/api/disciples/:id', auth, (req,res)=>{
   const d=readStore(),x=d.disciples.find(v=>v.id===req.params.id); if(!x||!(req.user.role==='owner'||x.organizationId===req.user.organizationId)) return res.status(404).json({error:'Disciple not found.'});
@@ -150,7 +158,16 @@ app.post('/api/disciples/:id/event-rate', auth, (req,res)=>{
   const d=readStore(),x=d.disciples.find(v=>v.id===req.params.id),e=d.events.find(v=>v.id===req.body.eventId); if(!x||!e||!(req.user.role==='owner'||(x.organizationId===req.user.organizationId&&e.organizationId===req.user.organizationId))) return res.status(403).json({error:'No access.'});
   const percent=Math.max(0,Math.min(100,Number(req.body.percent)||0)); x.eventRates ||= []; const prior=x.eventRates.find(v=>v.eventId===e.id); if(prior)prior.percent=percent;else x.eventRates.push({eventId:e.id,percent}); writeStore(d);res.json({disciple:x});
 });
-app.get('/api/disciples/:code/resolve',(req,res)=>{ const d=readStore(),x=d.disciples.find(v=>v.code===String(req.params.code||'').toUpperCase()&&v.status==='active'); if(!x)return res.status(404).json({error:'Disciple not found.'}); res.json({disciple:{id:x.id,name:x.name,code:x.code}}); });
+app.get('/api/disciples/:code/resolve',(req,res)=>{ const d=readStore(),x=d.disciples.find(v=>v.code===String(req.params.code||'').toUpperCase()&&v.status==='active'); if(!x)return res.status(404).json({error:'Disciple not found.'}); res.json({disciple:{id:x.id,name:x.name,code:x.code,handle:x.handle||''}}); });
+function discipleRedirect(req,res,handle){
+  const d=readStore(),x=d.disciples.find(v=>String(v.handle||'').toLowerCase()===String(handle||'').toLowerCase()&&v.status==='active');
+  if(!x)return res.status(404).send('Disciple link not found.');
+  const event=d.events.find(e=>e.status==='published'&&String(e.slug||'').includes('kingdom-vibe-live'))||d.events.find(e=>e.status==='published');
+  if(!event)return res.redirect(302,'https://kvnlive.com/?disciple='+encodeURIComponent(x.code));
+  return res.redirect(302,'/event.html?slug='+encodeURIComponent(event.slug)+'&disciple='+encodeURIComponent(x.code));
+}
+app.get('/disciple/:handle',(req,res)=>discipleRedirect(req,res,req.params.handle));
+app.get('/:handle',(req,res,next)=>{ const host=String(req.headers.host||'').split(':')[0].toLowerCase(); if(host!=='disciple.kvnlive.com')return next(); return discipleRedirect(req,res,req.params.handle); });
 app.post('/api/disciple-commissions/:id/mark-paid', auth, owner, (req,res)=>{
   const d=readStore(),c=d.discipleCommissions.find(x=>x.id===req.params.id); if(!c)return res.status(404).json({error:'Commission not found.'});
   if(c.status==='reversed')return res.status(409).json({error:'Reversed commission cannot be paid.'});
@@ -165,6 +182,14 @@ app.post('/api/disciple-commissions/:id/reverse', auth, owner, (req,res)=>{
   writeStore(d); res.json({commission:c});
 });
 
+app.post('/api/disciples/:id/credit-sale', auth, owner, (req,res)=>{
+  const d=readStore(),disciple=d.disciples.find(x=>x.id===req.params.id&&x.status==='active'); if(!disciple)return res.status(404).json({error:'Active Disciple not found.'});
+  const amountPaid=Math.max(0,Math.round(Number(req.body.amountPaid)||0)); if(amountPaid<=0)return res.status(400).json({error:'amountPaid must be supplied in cents.'});
+  const rate=Math.max(0,Math.min(100,Number(req.body.ratePercent??disciple.defaultCommissionPercent??d.settings.defaultDiscipleCommissionPercent??10)));
+  const amount=Math.round(amountPaid*rate/100),now=new Date();
+  const commission={id:id('com'),discipleId:disciple.id,eventId:'',orderId:String(req.body.reference||id('ext')),ratePercent:rate,eligibleBase:amountPaid,amount,status:'pending',sourceType:String(req.body.sourceType||'kingdom_market'),sourceLabel:String(req.body.sourceLabel||'Kingdom Market'),earnedAt:now.toISOString(),payoutDate:nextMonthlyPayoutDate(now),paidAt:'',paymentReference:'',createdAt:now.toISOString()};
+  d.discipleCommissions.push(commission); writeStore(d); res.status(201).json({commission});
+});
 app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const disc={id:id('disc'),eventId:e.id,code:String(req.body.code||'').toUpperCase().replace(/\s/g,''),type:req.body.type==='fixed'?'fixed':'percent',value:Math.max(0,Number(req.body.value)||0),active:true,maxUses:Math.max(1,Number(req.body.maxUses)||100),uses:0}; if(!disc.code) return res.status(400).json({error:'Code required.'}); d.discounts.push(disc); writeStore(d); res.status(201).json({discount:disc}); });
 
 app.post('/api/create-checkout-session', async (req,res)=>{
@@ -199,7 +224,7 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     if(!stripe)return res.status(503).json({error:'Stripe is not configured. Add STRIPE_SECRET_KEY to accept payments.',preview:{subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,taxAmount,fees,total,orderId}});
     const expiration=checkoutExpiration(),checkoutExpiresAt=expiration.iso,expiresAt=expiration.unix;
     const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''}};
-    const org=d.organizations.find(o=>o.id===e.organizationId),discipleSplit=Boolean(disciple?.stripeAccountId); if(org?.stripeAccountId&&!discipleSplit){sessionConfig.payment_intent_data={application_fee_amount:Math.max(0,fees.kvnFee),transfer_data:{destination:org.stripeAccountId}};}if(discipleSplit)sessionConfig.payment_intent_data={metadata:{split_mode:'disciple',organization_id:e.organizationId,disciple_id:disciple.id}};
+    const org=d.organizations.find(o=>o.id===e.organizationId),discipleSplit=false; if(org?.stripeAccountId){sessionConfig.payment_intent_data={application_fee_amount:Math.max(0,fees.kvnFee),transfer_data:{destination:org.stripeAccountId}};}
     d.orders.push({id:orderId,eventId:e.id,organizationId:e.organizationId,stripeSessionId:'',buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',checkoutExpiresAt,tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);
     try{
       if(promoDiscountAmount>0){const coupon=await stripe.coupons.create({amount_off:promoDiscountAmount,currency:'usd',duration:'once',name:`${discountCode} discount`});if(coupon)sessionConfig.discounts=[{coupon:coupon.id}];}
