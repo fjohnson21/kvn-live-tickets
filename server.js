@@ -148,10 +148,12 @@ app.post('/api/disciples/apply', (req,res)=>{
   const d=readStore(),b=req.body||{}; const name=String(b.name||'').trim(),email=String(b.email||'').trim().toLowerCase();
   if(!name||!email)return res.status(400).json({error:'Name and email are required.'});
   if(!b.attested)return res.status(400).json({error:'Agreement attestation is required.'});
+  const now=new Date().toISOString();
   const existing=d.discipleApplications.find(x=>x.email===email&&['submitted','resubmitted'].includes(x.status));
-  if(existing)return res.status(409).json({error:'An application for this email is already pending.',applicationReference:existing.applicationReference});
-  const now=new Date().toISOString(),reference='KVN-D-'+now.slice(0,10).replaceAll('-','')+'-'+crypto.randomBytes(4).toString('hex').toUpperCase();
-  const application={id:id('dapp'),applicationReference:reference,status:'submitted',name,email,phone:String(b.phone||''),city:String(b.city||''),state:String(b.state||''),shirtSize:String(b.shirtSize||''),market:String(b.market||''),instagram:String(b.instagram||''),facebook:String(b.facebook||''),tiktok:String(b.tiktok||''),audienceSize:String(b.audienceSize||''),motivation:String(b.motivation||''),promotionPlan:String(b.promotionPlan||''),preferredName:String(b.preferredName||''),weeklyPostCommitment:Boolean(b.weeklyPostCommitment),agreementVersion:'2.0',agreementAcceptedAt:now,typedLegalName:String(b.typedLegalName||name),submittedAt:now,updatedAt:now};
+  if(existing?.agreementVersion==='2.1')return res.status(409).json({error:'An application for this email is already pending.',applicationReference:existing.applicationReference});
+  if(existing){existing.status='superseded';existing.supersededAt=now;existing.updatedAt=now;}
+  const reference='KVN-D-'+now.slice(0,10).replaceAll('-','')+'-'+crypto.randomBytes(4).toString('hex').toUpperCase();
+  const application={id:id('dapp'),applicationReference:reference,status:'submitted',name,email,phone:String(b.phone||''),city:String(b.city||''),state:String(b.state||''),shirtSize:String(b.shirtSize||''),market:String(b.market||''),instagram:String(b.instagram||''),facebook:String(b.facebook||''),tiktok:String(b.tiktok||''),audienceSize:String(b.audienceSize||''),motivation:String(b.motivation||''),promotionPlan:String(b.promotionPlan||''),preferredName:String(b.preferredName||''),weeklyPostCommitment:Boolean(b.weeklyPostCommitment),agreementVersion:'2.1',agreementAcceptedAt:now,typedLegalName:String(b.typedLegalName||name),submittedAt:now,updatedAt:now};
   d.discipleApplications.unshift(application);writeStore(d);
   res.status(201).json({ok:true,applicationReference:reference,status:'submitted',message:'Your Kingdom Vibe Disciple application has been received.'});
 });
@@ -162,8 +164,9 @@ app.post('/api/disciple-applications/:id/status',auth,owner,async(req,res)=>{
   const status=String(req.body.status||''); if(!['approved','rejected','needs_info'].includes(status))return res.status(400).json({error:'Invalid application status.'});
   if(status!=='approved'){a.status=status;a.updatedAt=new Date().toISOString();writeStore(d);return res.json({application:a});}
   if(!['submitted','resubmitted','needs_info'].includes(a.status))return res.status(409).json({error:'Application is not approval-eligible.'});
-  const result=upsertDiscipleFromApplication(d,{...a,applicationStatus:'approved',defaultCommissionPercent:0},{id});
-  const disciple=result.disciple; disciple.defaultCommissionPercent=0; const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(disciple.handle);
+  if(a.agreementVersion!=='2.1')return res.status(409).json({error:'Applicant must accept the current Disciple Agreement v2.1 before approval.'});
+  const result=upsertDiscipleFromApplication(d,{...a,applicationStatus:'approved',defaultCommissionPercent:10},{id});
+  const disciple=result.disciple; disciple.defaultCommissionPercent=10; const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(disciple.handle);
   disciple.welcomeEmail=await sendDiscipleWelcome({disciple,link:trackingUrl,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'});
   a.status='approved';a.approvedAt=new Date().toISOString();a.approvedDiscipleId=disciple.id;a.updatedAt=a.approvedAt;
   d.auditLogs.unshift({id:id('log'),userId:req.user.id,userName:req.user.name,action:'disciple.approve',entityType:'disciple_application',entityId:a.id,meta:{applicationReference:a.applicationReference,discipleId:disciple.id},createdAt:a.approvedAt});
