@@ -9,6 +9,7 @@ test('confirmation contains merch details without ticket language',()=>{
   assert.match(message.text,/Collector’s Edition 001/);
   assert.match(message.text,/Ships beginning October 15, 2026/);
   assert.match(message.text,/Shipping address:/);
+  assert.match(message.text,/A portion of every purchase helps fund Kingdom Projects and supports our Acts 2:44 Foundation/);
   assert.doesNotMatch(message.text,/QR|check-in|ticket code/i);
 });
 
