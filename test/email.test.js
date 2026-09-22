@@ -183,3 +183,10 @@ test('Disciple welcome email includes the approved 10% commission and payout ter
   assert.match(content.text,/monthly on the 15th/i);
   assert.match(content.text,/no minimum payout/i);
 });
+
+test('welcome email uses Kingdom Disciple branding and current attribution terms', async()=>{
+  const { buildDiscipleWelcome } = await import('../lib/email.js');
+  const content=buildDiscipleWelcome({disciple:{name:'Briannah'},link:'https://disciple.kvnlive.com/briannahcooper'});
+  assert.match(content.subject,/Kingdom Disciple/);
+  assert.match(content.text,/30-day attribution/i);
+});

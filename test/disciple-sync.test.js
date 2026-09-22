@@ -34,3 +34,10 @@ test('application sync defaults a new Disciple to 10% when no rate is supplied',
   },{id:()=> 'dsc_default',now:()=> '2026-09-21T19:00:00.000Z'});
   assert.equal(disciple.defaultCommissionPercent,10);
 });
+
+test('application sync accepts complete legal-name fields from v2.2 intake',()=>{
+  const store=makeStore();
+  const {disciple}=upsertDiscipleFromApplication(store,{applicationReference:'KVN-D-2',legalFirstName:'Briannah',legalLastName:'Cooper',preferredName:'Briannah',email:'b@example.com',agreementVersion:'2.2'},{id:()=> 'dsc_2'});
+  assert.equal(disciple.name,'Briannah Cooper');
+  assert.equal(disciple.sourceAgreementVersion,'2.2');
+});
