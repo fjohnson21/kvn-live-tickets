@@ -18,6 +18,12 @@ import { receiveDiscipleApplication } from './lib/disciple-intake.js';
 import { setLeaderStatus,assignTeamMember,endTeamAssignment } from './lib/disciple-teams.js';
 import { createCommunityBonus,reverseCommunityBonusForCommission } from './lib/disciple-community-bonus.js';
 import { awardLeaderBundle,inviteMemberBundle } from './lib/disciple-bundles.js';
+import { publicShopCatalog } from './lib/shop-catalog.js';
+import { reserveShopInventory } from './lib/shop-inventory.js';
+import { buildShopCheckoutSession, normalizeShopCart, ShopCheckoutError } from './lib/shop-checkout.js';
+import { expireShopSession, finalizeShopSession, refundShopOrder } from './lib/shop-finalize.js';
+import { deliverShopConfirmation } from './lib/shop-email.js';
+import { shopMetrics, shopOrdersCsv } from './lib/shop-report.js';
 
 const startupStore = readStore();
 if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
@@ -41,8 +47,15 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
     if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).send('Webhook not configured');
     const sig=req.headers['stripe-signature'];
     const event=stripe.webhooks.constructEvent(req.body,sig,process.env.STRIPE_WEBHOOK_SECRET);
-    if(event.type==='checkout.session.completed' && event.data.object.payment_status==='paid') await finalizeSession(event.data.object);
-    if(event.type==='checkout.session.expired') expireSession(event.data.object);
+    if(event.type==='checkout.session.completed' && event.data.object.payment_status==='paid'){
+      if(event.data.object.metadata?.order_type==='apparel'){
+        const d=readStore();await finalizeShopSession(d,event.data.object,{id,queueConfirmation:order=>deliverShopConfirmation({order,apiKey:process.env.RESEND_API_KEY,from:process.env.SHOP_EMAIL_FROM||'Kingdom Vibe Shop <shop@kvnlive.com>'})});writeStore(d);
+      } else await finalizeSession(event.data.object);
+    }
+    if(event.type==='checkout.session.expired'){
+      if(event.data.object.metadata?.order_type==='apparel'){const d=readStore();expireShopSession(d,event.data.object);writeStore(d);}
+      else expireSession(event.data.object);
+    }
     res.json({received:true});
   } catch(err) { console.error('Webhook error',err.message); res.status(400).send(`Webhook Error: ${err.message}`); }
 });
@@ -52,6 +65,52 @@ app.use(express.static('public'));
 const uploadDir = process.env.UPLOAD_DIR || path.resolve('public/uploads');
 requireDir(uploadDir);
 app.use('/uploads', express.static(uploadDir));
+
+app.get('/api/shop/catalog',(req,res)=>{
+  res.set('Cache-Control','public, max-age=60').json(publicShopCatalog(readStore()));
+});
+
+app.post('/api/shop/checkout',async(req,res)=>{
+  try{
+    const email=String(req.body.email||'').trim().toLowerCase();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:'Enter a valid email address.'});
+    const d=readStore(),normalized=normalizeShopCart(d,req.body.cart);
+    if(!stripe) return res.status(503).json({error:'Apparel checkout is not configured.'});
+    const discipleCode=String(req.body.discipleCode||'').trim().toUpperCase();
+    const disciple=d.disciples.find(item=>item.code===discipleCode&&item.status==='active');
+    const orderId=id('sho');
+    const reservation=reserveShopInventory(d,{orderId,lines:normalized.lines});
+    const order={id:orderId,orderType:'apparel',status:'pending',buyerEmail:email,items:normalized.lines,
+      merchandiseSubtotal:normalized.totals.merchandiseSubtotal,shippingAmount:normalized.totals.shippingAmount,
+      amountSubtotal:normalized.totals.merchandiseSubtotal,reservationId:reservation.id,checkoutExpiresAt:reservation.expiresAt,
+      discipleId:disciple?.id||'',discipleCode:disciple?.code||'',stripeSessionId:'',createdAt:new Date().toISOString()};
+    d.shopOrders.push(order);writeStore(d);
+    try{
+      const config=buildShopCheckoutSession(order,process.env.SHOP_ORIGIN||'https://www.kvnlive.com');
+      config.expires_at=Math.floor(new Date(reservation.expiresAt).getTime()/1000);
+      const session=await stripe.checkout.sessions.create(config);
+      const latest=readStore(),pending=latest.shopOrders.find(item=>item.id===orderId);
+      if(pending){pending.stripeSessionId=session.id;pending.checkoutExpiresAt=session.expires_at?new Date(session.expires_at*1000).toISOString():pending.checkoutExpiresAt;writeStore(latest);}
+      res.status(201).json({url:session.url,orderId});
+    }catch(error){
+      const latest=readStore(),pending=latest.shopOrders.find(item=>item.id===orderId),held=latest.shopReservations.find(item=>item.id===reservation.id);
+      if(pending){pending.status='checkout_failed';pending.checkoutError=String(error.message||error);pending.updatedAt=new Date().toISOString();}
+      if(held&&held.status==='pending'){held.status='released';held.releasedAt=new Date().toISOString();}
+      writeStore(latest);
+      if(/tax/i.test(String(error.message||''))) return res.status(503).json({error:'Apparel checkout tax configuration requires attention.'});
+      throw error;
+    }
+  }catch(error){
+    if(error instanceof ShopCheckoutError||error?.statusCode) return res.status(error.statusCode||400).json({error:error.message});
+    console.error('Shop checkout error',error);res.status(500).json({error:'Unable to start apparel checkout.'});
+  }
+});
+
+app.get('/api/shop/orders/:id/receipt',(req,res)=>{
+  const order=readStore().shopOrders.find(item=>item.id===req.params.id&&item.stripeSessionId===String(req.query.session_id||''));
+  if(!order||order.status!=='paid')return res.status(404).json({error:'Paid shop order not found.'});
+  res.set('Cache-Control','no-store').json({order:{id:order.id,status:order.status,fulfillmentStatus:order.fulfillmentStatus,items:order.items,collectorNumbers:order.collectorNumbers,merchandiseSubtotal:order.merchandiseSubtotal,shippingAmount:order.shippingAmount,taxAmount:order.taxAmount,amountTotal:order.amountTotal,shipsBeginning:'2026-10-15'}});
+});
 
 const safeUser = u => u ? ({id:u.id,name:u.name,email:u.email,role:u.role,organizationId:u.organizationId,permissions:u.permissions||[]}) : null;
 function cookieValue(req,name){ const prefix=`${name}=`; return String(req.headers.cookie||'').split(';').map(value=>value.trim()).find(value=>value.startsWith(prefix))?.slice(prefix.length)||''; }
@@ -130,6 +189,13 @@ app.post('/api/organizations/apply', (req,res)=>{ const d=readStore(); const nam
 app.put('/api/organizations/:id/profile', auth, (req,res)=>{ const d=readStore(),org=d.organizations.find(x=>x.id===req.params.id); if(!org||!(req.user.role==='owner'||req.user.organizationId===org.id)) return res.status(403).json({error:'No access.'}); const b=req.body||{}; if(b.name) {org.name=String(b.name);org.slug=org.slug||slugify(org.name);} org.profile={...(org.profile||{}),contactName:String(b.contactName??org.profile?.contactName??''),businessEmail:String(b.businessEmail??org.profile?.businessEmail??''),phone:String(b.phone??org.profile?.phone??''),website:String(b.website??org.profile?.website??''),organizationType:String(b.organizationType??org.profile?.organizationType??''),description:String(b.description??org.profile?.description??''),publicContact:Boolean(b.publicContact),social:{...(org.profile?.social||{}),...(b.social||{})},address:{...(org.profile?.address||{}),...(b.address||{})}}; org.onboarding={...(org.onboarding||{}),profile:true}; writeStore(d);res.json({organization:org}); });
 
 app.get('/api/dashboard', auth, (req,res)=>{ const d=readStore(); const events=req.user.role==='owner'?d.events:d.events.filter(e=>e.organizationId===req.user.organizationId); const orders=req.user.role==='owner'?d.orders:d.orders.filter(o=>events.some(e=>e.id===o.eventId)); const organizations=req.user.role==='owner'?d.organizations:d.organizations.filter(o=>o.id===req.user.organizationId); const gross=orders.reduce((n,o)=>n+(o.amountTotal||0),0); res.json({user:safeUser(req.user),events,orders,organizations,discounts:d.discounts.filter(x=>req.user.role==='owner'||events.some(e=>e.id===x.eventId)),settings:d.settings,staff:d.users.filter(u=>u.role==='staff'&&(req.user.role==='owner'||u.organizationId===req.user.organizationId)),payouts:d.payouts.filter(p=>req.user.role==='owner'||organizations.some(o=>o.id===p.organizationId)),disciples:d.disciples.filter(x=>req.user.role==='owner'||x.organizationId===req.user.organizationId),discipleCommissions:d.discipleCommissions.filter(c=>req.user.role==='owner'||events.some(e=>e.id===c.eventId)),disciplePayouts:d.disciplePayouts.filter(p=>req.user.role==='owner'||d.disciples.some(x=>x.id===p.discipleId&&x.organizationId===req.user.organizationId)),discipleApplications:req.user.role==='owner'?d.discipleApplications:[],discipleTeams:req.user.role==='owner'?d.discipleTeams:[],discipleCommunityBonuses:req.user.role==='owner'?d.discipleCommunityBonuses:[],discipleBundleActions:req.user.role==='owner'?d.discipleBundleActions:[],communityBonusLegalApproved:process.env.COMMUNITY_BONUS_LEGAL_APPROVED==='true',metrics:{gross,orders:orders.length,tickets:orders.reduce((n,o)=>n+(o.tickets?.length||0),0),events:events.length}}); });
+
+app.get('/api/shop/orders',auth,owner,(req,res)=>{const d=readStore();const status=String(req.query.status||'');const orders=status?d.shopOrders.filter(item=>item.status===status||item.fulfillmentStatus===status):d.shopOrders;res.json({orders,products:d.shopProducts,metrics:shopMetrics(d)});});
+app.get('/api/shop/orders.csv',auth,owner,(req,res)=>{const d=readStore();res.type('text/csv').set('Content-Disposition','attachment; filename="kvn-shop-orders.csv"').send(shopOrdersCsv(d.shopOrders));});
+app.post('/api/shop/orders/:id/resend',auth,owner,async(req,res)=>{const d=readStore(),order=d.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});const confirmationEmail=await deliverShopConfirmation({order,apiKey:process.env.RESEND_API_KEY,from:process.env.SHOP_EMAIL_FROM||'Kingdom Vibe Shop <shop@kvnlive.com>',force:true});d.shopAudit.push({id:id('sha'),orderId:order.id,action:'confirmation_resend',userId:req.user.id,createdAt:new Date().toISOString()});writeStore(d);res.status(confirmationEmail.status==='sent'?200:502).json({confirmationEmail});});
+app.post('/api/shop/orders/:id/ship',auth,owner,(req,res)=>{const d=readStore(),order=d.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});const carrier=String(req.body.carrier||'').trim(),trackingNumber=String(req.body.trackingNumber||'').trim();if(!carrier||!trackingNumber)return res.status(400).json({error:'Carrier and tracking number are required.'});order.fulfillmentStatus='shipped';order.carrier=carrier;order.trackingNumber=trackingNumber;order.shippedAt=new Date().toISOString();d.shopAudit.push({id:id('sha'),orderId:order.id,action:'shipped',userId:req.user.id,meta:{carrier,trackingNumber},createdAt:order.shippedAt});writeStore(d);res.json({order});});
+app.patch('/api/shop/orders/:id/size',auth,owner,(req,res)=>{const d=readStore(),order=d.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});if(order.fulfillmentStatus!=='awaiting_fulfillment')return res.status(409).json({error:'Only unfulfilled orders can change size.'});const index=Number(req.body.itemIndex),size=String(req.body.size||''),line=order.items[index],product=d.shopProducts.find(item=>item.id===line?.productId);if(!line||!product?.sizes.includes(size))return res.status(400).json({error:'Choose a valid order item and size.'});if(Number(product.sizeInventory[size]||0)<line.quantity)return res.status(409).json({error:`Only ${Number(product.sizeInventory[size]||0)} ${size} remaining.`});product.sizeInventory[size]-=line.quantity;product.sizeInventory[line.size]+=line.quantity;const prior=line.size;line.size=size;line.unitAmount=product.unitAmountBySize[size];order.merchandiseSubtotal=order.items.reduce((n,item)=>n+item.unitAmount*item.quantity,0);d.shopAudit.push({id:id('sha'),orderId:order.id,action:'size_changed',userId:req.user.id,meta:{prior,size,index},createdAt:new Date().toISOString()});writeStore(d);res.json({order});});
+app.post('/api/shop/orders/:id/refund',auth,owner,async(req,res)=>{const d=readStore(),order=d.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});if(!stripe)return res.status(503).json({error:'Stripe is not configured.'});const session=await stripe.checkout.sessions.retrieve(order.stripeSessionId);if(!session.payment_intent)return res.status(409).json({error:'No payment intent available.'});await stripe.refunds.create({payment_intent:session.payment_intent});refundShopOrder(d,order.id);d.shopAudit.push({id:id('sha'),orderId:order.id,action:'refunded',userId:req.user.id,createdAt:new Date().toISOString()});writeStore(d);res.json({order});});
 
 app.post('/api/events', auth, (req,res)=>{ const d=readStore(); const title=String(req.body.title||'Untitled Event').trim(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId; const event={id:id('evt'),organizationId:orgId,slug:`${slugify(title)}-${Math.random().toString(36).slice(2,6)}`,title,subtitle:req.body.subtitle||'',description:req.body.description||'',date:req.body.date||'',venue:req.body.venue||'',location:req.body.location||'',status:req.user.role==='owner'?'draft':'pending',featured:false,feeSettings:{strategy:'buyer',kvnPercent:2.95,kvnFixedPerTicket:195,merchantPercent:2.9,merchantFixed:30,merchantGrossUp:true,refundKvnFees:false,refundMerchantFees:false},theme:{accent:'#e2252b',surface:'#111111',logoText:title.toUpperCase().slice(0,20)},products:[],layout:[{id:id('b'),type:'hero',title,body:req.body.subtitle||'Event experience'},{id:id('b'),type:'tickets',title:'Tickets',body:'Choose your experience.'}],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}; d.events.push(event); writeStore(d); res.status(201).json({event}); });
 
