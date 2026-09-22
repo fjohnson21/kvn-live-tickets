@@ -9,13 +9,20 @@ const file = path.join(dataDir, 'store.json');
 const seedFile = path.join(__dirname, 'data', 'store.json');
 if (!fs.existsSync(file) && fs.existsSync(seedFile)) fs.copyFileSync(seedFile,file);
 const defaultFeeSettings=()=>({strategy:'buyer',kvnPercent:2.95,kvnFixedPerTicket:195,merchantPercent:2.9,merchantFixed:30,merchantGrossUp:true,refundKvnFees:false,refundMerchantFees:false});
+export function ensureDiscipleProgramCollections(store){
+  store.settings ||= {};
+  store.settings.defaultDiscipleCommissionPercent ??= 10;
+  store.settings.communityBonusPercent ??= 2;
+  for(const key of ['discipleApplications','disciples','discipleCommissions','disciplePayouts','discipleTeams','discipleCommunityBonuses','discipleBundleActions','auditLogs']) store[key] ||= [];
+  return store;
+}
 export function readStore(){
-  const d=JSON.parse(fs.readFileSync(file,'utf8'));
+  const d=ensureDiscipleProgramCollections(JSON.parse(fs.readFileSync(file,'utf8')));
   d.users ||= []; d.organizations ||= []; d.events ||= []; d.orders ||= []; d.discounts ||= [];
   d.staff ||= []; d.payouts ||= []; d.auditLogs ||= []; d.abandonedCarts ||= []; d.media ||= []; d.disciples ||= []; d.discipleApplications ||= []; d.discipleCommissions ||= []; d.disciplePayouts ||= [];
   d.settings ||= {}; d.settings.platformFeePercent ??= 5; d.settings.taxRatePercent ??= 0; d.settings.discipleCookieDays ??= 30; d.settings.defaultDiscipleCommissionPercent ??= 10; d.settings.disciplePayoutDay ??= 15; d.settings.discipleMinimumPayout ??= 0; d.settings.disciplePayoutMode ||= 'manual';
-  if(d.settings.discipleProgramVersion!=='2.1'){
-    d.settings.discipleProgramVersion='2.1';
+  if(d.settings.discipleProgramVersion!=='2.2'){
+    d.settings.discipleProgramVersion='2.2';
     d.settings.defaultDiscipleCommissionPercent=10;
     d.settings.discipleCookieDays=30;
     d.settings.disciplePayoutDay=15;

@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+test('server exposes secret-authenticated idempotent application intake',()=>{const source=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');assert.match(source,/x-kvn-disciple-intake-secret/);assert.match(source,/DISCIPLE_INTAKE_SECRET/);assert.match(source,/\/api\/integrations\/disciples\/applications/);assert.match(source,/idempotency-key/);});

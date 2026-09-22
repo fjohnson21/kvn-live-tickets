@@ -14,6 +14,10 @@ import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
 import { createTicketConfirmationDispatcher, sendDiscipleWelcome } from './lib/email.js';
 import { upsertDiscipleFromApplication } from './lib/disciple-sync.js';
+import { receiveDiscipleApplication } from './lib/disciple-intake.js';
+import { setLeaderStatus,assignTeamMember,endTeamAssignment } from './lib/disciple-teams.js';
+import { createCommunityBonus,reverseCommunityBonusForCommission } from './lib/disciple-community-bonus.js';
+import { awardLeaderBundle,inviteMemberBundle } from './lib/disciple-bundles.js';
 
 const startupStore = readStore();
 if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
@@ -91,6 +95,7 @@ async function processDiscipleCommission(d,order,event,session){
   const now=new Date();
   const commission={id:id('com'),discipleId:disciple.id,eventId:event.id,orderId:order.id,ratePercent:rate,eligibleBase:base,amount,status:'pending',sourceType:'event_order',earnedAt:now.toISOString(),payoutDate:nextMonthlyPayoutDate(now),paidAt:'',paymentReference:'',createdAt:now.toISOString()};
   d.discipleCommissions.push(commission); order.discipleCommissionId=commission.id; order.discipleCommissionAmount=amount;
+  createCommunityBonus(d,{commission,order},{id});
 }
 function nextMonthlyPayoutDate(date=new Date()){
   const y=date.getUTCFullYear(),m=date.getUTCMonth();
@@ -124,7 +129,7 @@ app.get('/api/me', auth, (req,res)=>res.json({user:safeUser(req.user)}));
 app.post('/api/organizations/apply', (req,res)=>{ const d=readStore(); const name=String(req.body.name||'').trim(), email=String(req.body.email||'').trim(); if(!name||!email) return res.status(400).json({error:'Organization name and email are required.'}); const org={id:id('org'),name,slug:slugify(name),status:'pending',stripeAccountId:'',profile:{contactName:String(req.body.contactName||''),businessEmail:email,phone:String(req.body.phone||''),website:String(req.body.website||''),social:req.body.social||{},address:req.body.address||{},organizationType:String(req.body.organizationType||''),description:String(req.body.description||''),publicContact:Boolean(req.body.publicContact)},createdAt:new Date().toISOString()}; const user={id:id('usr'),name:req.body.contactName||name,email,role:'organizer',organizationId:org.id}; d.organizations.push(org); d.users.push(user); writeStore(d); res.status(201).json({organization:org,message:'Application submitted for KVN review.'}); });
 app.put('/api/organizations/:id/profile', auth, (req,res)=>{ const d=readStore(),org=d.organizations.find(x=>x.id===req.params.id); if(!org||!(req.user.role==='owner'||req.user.organizationId===org.id)) return res.status(403).json({error:'No access.'}); const b=req.body||{}; if(b.name) {org.name=String(b.name);org.slug=org.slug||slugify(org.name);} org.profile={...(org.profile||{}),contactName:String(b.contactName??org.profile?.contactName??''),businessEmail:String(b.businessEmail??org.profile?.businessEmail??''),phone:String(b.phone??org.profile?.phone??''),website:String(b.website??org.profile?.website??''),organizationType:String(b.organizationType??org.profile?.organizationType??''),description:String(b.description??org.profile?.description??''),publicContact:Boolean(b.publicContact),social:{...(org.profile?.social||{}),...(b.social||{})},address:{...(org.profile?.address||{}),...(b.address||{})}}; org.onboarding={...(org.onboarding||{}),profile:true}; writeStore(d);res.json({organization:org}); });
 
-app.get('/api/dashboard', auth, (req,res)=>{ const d=readStore(); const events=req.user.role==='owner'?d.events:d.events.filter(e=>e.organizationId===req.user.organizationId); const orders=req.user.role==='owner'?d.orders:d.orders.filter(o=>events.some(e=>e.id===o.eventId)); const organizations=req.user.role==='owner'?d.organizations:d.organizations.filter(o=>o.id===req.user.organizationId); const gross=orders.reduce((n,o)=>n+(o.amountTotal||0),0); res.json({user:safeUser(req.user),events,orders,organizations,discounts:d.discounts.filter(x=>req.user.role==='owner'||events.some(e=>e.id===x.eventId)),settings:d.settings,staff:d.users.filter(u=>u.role==='staff'&&(req.user.role==='owner'||u.organizationId===req.user.organizationId)),payouts:d.payouts.filter(p=>req.user.role==='owner'||organizations.some(o=>o.id===p.organizationId)),disciples:d.disciples.filter(x=>req.user.role==='owner'||x.organizationId===req.user.organizationId),discipleCommissions:d.discipleCommissions.filter(c=>req.user.role==='owner'||events.some(e=>e.id===c.eventId)),disciplePayouts:d.disciplePayouts.filter(p=>req.user.role==='owner'||d.disciples.some(x=>x.id===p.discipleId&&x.organizationId===req.user.organizationId)),discipleApplications:req.user.role==='owner'?d.discipleApplications:[],metrics:{gross,orders:orders.length,tickets:orders.reduce((n,o)=>n+(o.tickets?.length||0),0),events:events.length}}); });
+app.get('/api/dashboard', auth, (req,res)=>{ const d=readStore(); const events=req.user.role==='owner'?d.events:d.events.filter(e=>e.organizationId===req.user.organizationId); const orders=req.user.role==='owner'?d.orders:d.orders.filter(o=>events.some(e=>e.id===o.eventId)); const organizations=req.user.role==='owner'?d.organizations:d.organizations.filter(o=>o.id===req.user.organizationId); const gross=orders.reduce((n,o)=>n+(o.amountTotal||0),0); res.json({user:safeUser(req.user),events,orders,organizations,discounts:d.discounts.filter(x=>req.user.role==='owner'||events.some(e=>e.id===x.eventId)),settings:d.settings,staff:d.users.filter(u=>u.role==='staff'&&(req.user.role==='owner'||u.organizationId===req.user.organizationId)),payouts:d.payouts.filter(p=>req.user.role==='owner'||organizations.some(o=>o.id===p.organizationId)),disciples:d.disciples.filter(x=>req.user.role==='owner'||x.organizationId===req.user.organizationId),discipleCommissions:d.discipleCommissions.filter(c=>req.user.role==='owner'||events.some(e=>e.id===c.eventId)),disciplePayouts:d.disciplePayouts.filter(p=>req.user.role==='owner'||d.disciples.some(x=>x.id===p.discipleId&&x.organizationId===req.user.organizationId)),discipleApplications:req.user.role==='owner'?d.discipleApplications:[],discipleTeams:req.user.role==='owner'?d.discipleTeams:[],discipleCommunityBonuses:req.user.role==='owner'?d.discipleCommunityBonuses:[],discipleBundleActions:req.user.role==='owner'?d.discipleBundleActions:[],communityBonusLegalApproved:process.env.COMMUNITY_BONUS_LEGAL_APPROVED==='true',metrics:{gross,orders:orders.length,tickets:orders.reduce((n,o)=>n+(o.tickets?.length||0),0),events:events.length}}); });
 
 app.post('/api/events', auth, (req,res)=>{ const d=readStore(); const title=String(req.body.title||'Untitled Event').trim(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId; const event={id:id('evt'),organizationId:orgId,slug:`${slugify(title)}-${Math.random().toString(36).slice(2,6)}`,title,subtitle:req.body.subtitle||'',description:req.body.description||'',date:req.body.date||'',venue:req.body.venue||'',location:req.body.location||'',status:req.user.role==='owner'?'draft':'pending',featured:false,feeSettings:{strategy:'buyer',kvnPercent:2.95,kvnFixedPerTicket:195,merchantPercent:2.9,merchantFixed:30,merchantGrossUp:true,refundKvnFees:false,refundMerchantFees:false},theme:{accent:'#e2252b',surface:'#111111',logoText:title.toUpperCase().slice(0,20)},products:[],layout:[{id:id('b'),type:'hero',title,body:req.body.subtitle||'Event experience'},{id:id('b'),type:'tickets',title:'Tickets',body:'Choose your experience.'}],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}; d.events.push(event); writeStore(d); res.status(201).json({event}); });
 
@@ -144,16 +149,34 @@ function validSyncSecret(req){
   return a.length===b.length&&crypto.timingSafeEqual(a,b);
 }
 
+function validDiscipleIntakeSecret(req){
+  const expected=String(process.env.DISCIPLE_INTAKE_SECRET||'');
+  const supplied=String(req.get('x-kvn-disciple-intake-secret')||'');
+  return Boolean(expected&&supplied&&sameSecret(expected,supplied));
+}
+
+app.post('/api/integrations/disciples/applications',(req,res)=>{
+  if(!validDiscipleIntakeSecret(req))return res.status(401).json({error:'Invalid integration secret.'});
+  const idempotencyKey=String(req.get('idempotency-key')||'').trim();
+  if(idempotencyKey.length<8||idempotencyKey.length>120)return res.status(400).json({error:'A valid idempotency key is required.'});
+  try{
+    const d=readStore();
+    const result=receiveDiscipleApplication(d,req.body,{idempotencyKey,sourceSystem:'kvnlive-site',ip:req.ip,userAgent:req.get('user-agent')||''},{id});
+    writeStore(d);
+    res.status(result.created?201:200).json({ok:true,applicationReference:result.application.applicationReference,created:result.created});
+  }catch(error){res.status(/too large/i.test(error.message)?413:400).json({error:error.message});}
+});
+
 app.post('/api/disciples/apply', (req,res)=>{
   const d=readStore(),b=req.body||{}; const name=String(b.name||'').trim(),email=String(b.email||'').trim().toLowerCase();
   if(!name||!email)return res.status(400).json({error:'Name and email are required.'});
   if(!b.attested)return res.status(400).json({error:'Agreement attestation is required.'});
   const now=new Date().toISOString();
   const existing=d.discipleApplications.find(x=>x.email===email&&['submitted','resubmitted'].includes(x.status));
-  if(existing?.agreementVersion==='2.1')return res.status(409).json({error:'An application for this email is already pending.',applicationReference:existing.applicationReference});
+  if(existing?.agreementVersion==='2.2')return res.status(409).json({error:'An application for this email is already pending.',applicationReference:existing.applicationReference});
   if(existing){existing.status='superseded';existing.supersededAt=now;existing.updatedAt=now;}
   const reference='KVN-D-'+now.slice(0,10).replaceAll('-','')+'-'+crypto.randomBytes(4).toString('hex').toUpperCase();
-  const application={id:id('dapp'),applicationReference:reference,status:'submitted',name,email,phone:String(b.phone||''),city:String(b.city||''),state:String(b.state||''),shirtSize:String(b.shirtSize||''),market:String(b.market||''),instagram:String(b.instagram||''),facebook:String(b.facebook||''),tiktok:String(b.tiktok||''),audienceSize:String(b.audienceSize||''),motivation:String(b.motivation||''),promotionPlan:String(b.promotionPlan||''),preferredName:String(b.preferredName||''),weeklyPostCommitment:Boolean(b.weeklyPostCommitment),agreementVersion:'2.1',agreementAcceptedAt:now,typedLegalName:String(b.typedLegalName||name),submittedAt:now,updatedAt:now};
+  const application={id:id('dapp'),applicationReference:reference,status:'submitted',name,email,phone:String(b.phone||''),city:String(b.city||''),state:String(b.state||''),shirtSize:String(b.shirtSize||''),market:String(b.market||''),instagram:String(b.instagram||''),facebook:String(b.facebook||''),tiktok:String(b.tiktok||''),audienceSize:String(b.audienceSize||''),motivation:String(b.motivation||''),promotionPlan:String(b.promotionPlan||''),preferredName:String(b.preferredName||''),weeklyPostCommitment:Boolean(b.weeklyPostCommitment),agreementVersion:'2.2',agreementAcceptedAt:now,typedLegalName:String(b.typedLegalName||name),submittedAt:now,updatedAt:now};
   d.discipleApplications.unshift(application);writeStore(d);
   res.status(201).json({ok:true,applicationReference:reference,status:'submitted',message:'Your Kingdom Vibe Disciple application has been received.'});
 });
@@ -164,7 +187,7 @@ app.post('/api/disciple-applications/:id/status',auth,owner,async(req,res)=>{
   const status=String(req.body.status||''); if(!['approved','rejected','needs_info'].includes(status))return res.status(400).json({error:'Invalid application status.'});
   if(status!=='approved'){a.status=status;a.updatedAt=new Date().toISOString();writeStore(d);return res.json({application:a});}
   if(!['submitted','resubmitted','needs_info'].includes(a.status))return res.status(409).json({error:'Application is not approval-eligible.'});
-  if(a.agreementVersion!=='2.1')return res.status(409).json({error:'Applicant must accept the current Disciple Agreement v2.1 before approval.'});
+  if(a.agreementVersion!=='2.2')return res.status(409).json({error:'Applicant must accept the current Kingdom Disciple Agreement v2.2 before approval.'});
   const result=upsertDiscipleFromApplication(d,{...a,applicationStatus:'approved',defaultCommissionPercent:10},{id});
   const disciple=result.disciple; disciple.defaultCommissionPercent=10; const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(disciple.handle);
   disciple.welcomeEmail=await sendDiscipleWelcome({disciple,link:trackingUrl,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'});
@@ -234,10 +257,24 @@ app.post('/api/disciple-commissions/:id/mark-paid', auth, owner, (req,res)=>{
   d.disciplePayouts.push({id:id('dsp'),discipleId:c.discipleId,commissionId:c.id,amount:c.amount,status:'paid',paymentReference:c.paymentReference,createdAt:c.paidAt});
   writeStore(d); res.json({commission:c});
 });
+
+app.post('/api/disciple-community-bonuses/:id/mark-paid',auth,owner,(req,res)=>{
+  if(process.env.COMMUNITY_BONUS_LEGAL_APPROVED!=='true')return res.status(409).json({error:'Licensed-counsel approval is required before Community Bonus payouts.'});
+  const d=readStore(),bonus=d.discipleCommunityBonuses.find(x=>x.id===req.params.id);if(!bonus)return res.status(404).json({error:'Community Bonus not found.'});
+  if(bonus.status==='reversed')return res.status(409).json({error:'Reversed Community Bonus cannot be paid.'});
+  bonus.status='paid';bonus.paidAt=new Date().toISOString();bonus.paymentReference=String(req.body.paymentReference||'manual');writeStore(d);res.json({bonus});
+});
+
+app.post('/api/disciples/:id/leader-status',auth,owner,(req,res)=>{try{const d=readStore(),disciple=setLeaderStatus(d,{discipleId:req.params.id,active:req.body.active,reason:req.body.reason,actorId:req.user.id},{id});writeStore(d);res.json({disciple});}catch(error){res.status(error.statusCode||400).json({error:error.message});}});
+app.post('/api/disciple-teams/assign',auth,owner,(req,res)=>{try{const d=readStore(),assignment=assignTeamMember(d,{leaderId:req.body.leaderId,memberId:req.body.memberId,source:req.body.source,reason:req.body.reason,actorId:req.user.id},{id});writeStore(d);res.status(201).json({assignment});}catch(error){res.status(error.statusCode||400).json({error:error.message});}});
+app.post('/api/disciple-teams/:assignmentId/end',auth,owner,(req,res)=>{try{const d=readStore(),assignment=endTeamAssignment(d,{assignmentId:req.params.assignmentId,reason:req.body.reason,actorId:req.user.id},{id});writeStore(d);res.json({assignment});}catch(error){res.status(error.statusCode||400).json({error:error.message});}});
+app.post('/api/disciples/:id/bundles/complimentary',auth,owner,(req,res)=>{try{const d=readStore(),action=awardLeaderBundle(d,{...req.body,discipleId:req.params.id,actorId:req.user.id},{id});writeStore(d);res.status(201).json({action});}catch(error){res.status(error.statusCode||400).json({error:error.message});}});
+app.post('/api/disciples/:id/bundles/invite',auth,owner,(req,res)=>{try{const d=readStore(),action=inviteMemberBundle(d,{...req.body,discipleId:req.params.id,actorId:req.user.id},{id});writeStore(d);res.status(201).json({action});}catch(error){res.status(error.statusCode||400).json({error:error.message});}});
 app.post('/api/disciple-commissions/:id/reverse', auth, owner, (req,res)=>{
   const d=readStore(),c=d.discipleCommissions.find(x=>x.id===req.params.id); if(!c)return res.status(404).json({error:'Commission not found.'});
   if(c.status==='paid')return res.status(409).json({error:'Paid commission requires a manual adjustment.'});
   c.status='reversed'; c.reversedAt=new Date().toISOString(); c.reversalReason=String(req.body.reason||'refund_or_chargeback');
+  reverseCommunityBonusForCommission(d,c.id);
   writeStore(d); res.json({commission:c});
 });
 
@@ -247,7 +284,7 @@ app.post('/api/disciples/:id/credit-sale', auth, owner, (req,res)=>{
   const rate=Math.max(0,Math.min(100,Number(req.body.ratePercent??disciple.defaultCommissionPercent??d.settings.defaultDiscipleCommissionPercent??10)));
   const amount=Math.round(amountPaid*rate/100),now=new Date();
   const commission={id:id('com'),discipleId:disciple.id,eventId:'',orderId:String(req.body.reference||id('ext')),ratePercent:rate,eligibleBase:amountPaid,amount,status:'pending',sourceType:String(req.body.sourceType||'kingdom_market'),sourceLabel:String(req.body.sourceLabel||'Kingdom Market'),earnedAt:now.toISOString(),payoutDate:nextMonthlyPayoutDate(now),paidAt:'',paymentReference:'',createdAt:now.toISOString()};
-  d.discipleCommissions.push(commission); writeStore(d); res.status(201).json({commission});
+  d.discipleCommissions.push(commission);createCommunityBonus(d,{commission,order:{id:commission.orderId,buyerEmail:String(req.body.buyerEmail||''),amountTotal:amountPaid,commissionEligible:true}},{id});writeStore(d); res.status(201).json({commission});
 });
 app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const disc={id:id('disc'),eventId:e.id,code:String(req.body.code||'').toUpperCase().replace(/\s/g,''),type:req.body.type==='fixed'?'fixed':'percent',value:Math.max(0,Number(req.body.value)||0),active:true,maxUses:Math.max(1,Number(req.body.maxUses)||100),uses:0}; if(!disc.code) return res.status(400).json({error:'Code required.'}); d.discounts.push(disc); writeStore(d); res.status(201).json({discount:disc}); });
 

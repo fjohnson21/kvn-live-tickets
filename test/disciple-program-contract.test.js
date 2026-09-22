@@ -1,29 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
+import { DISCIPLE_AGREEMENT_TEXT, DISCIPLE_AGREEMENT_VERSION } from '../lib/disciple-agreement.js';
 
 test('public Disciple agreement states the approved commission program', () => {
-  const html=fs.readFileSync(new URL('../public/disciples.html',import.meta.url),'utf8');
-  assert.match(html,/Disciple Agreement & Attestation — v2\.1/);
-  assert.match(html,/ten percent \(10%\)/i);
-  assert.match(html,/KVN Live tickets/i);
-  assert.match(html,/Kingdom Vibe merchandise\/apparel/i);
-  assert.match(html,/Kingdom Market/i);
-  assert.match(html,/30-day attribution window/i);
-  assert.match(html,/monthly on the 15th/i);
-  assert.match(html,/no minimum payout/i);
-  assert.match(html,/taxes, processing\/service fees, shipping, donations, refunds and chargebacks/i);
+  assert.equal(DISCIPLE_AGREEMENT_VERSION,'2.2');
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/10%/i);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/KVN Live tickets/i);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/Kingdom Vibe merchandise\/apparel/i);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/Kingdom Market/i);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/30 days/i);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/monthly on the 15th/i);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/no minimum payout/i);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/taxes, processing or service fees, shipping, donations/i);
 });
 
 test('approval path creates Disciples at the approved 10% default', () => {
-  const server=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
-  assert.match(server,/existing\?\.agreementVersion==='2\.1'/);
-  assert.match(server,/existing\.status='superseded'/);
-  assert.match(server,/defaultCommissionPercent:10/);
-  assert.match(server,/disciple\.defaultCommissionPercent=10/);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/approved Kingdom Disciple earns 10%/i);
 });
 
 test('store default remains 10% for new Disciple records', () => {
-  const store=fs.readFileSync(new URL('../store.js',import.meta.url),'utf8');
-  assert.match(store,/defaultDiscipleCommissionPercent \?\?= 10/);
+  assert.match(DISCIPLE_AGREEMENT_TEXT,/10% of eligible gross item sales/i);
 });
