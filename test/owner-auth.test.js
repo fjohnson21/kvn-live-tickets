@@ -21,8 +21,10 @@ test('corrupt persisted owner credentials fail closed instead of restoring the e
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvn-owner-auth-'));
   try {
     fs.writeFileSync(path.join(dataDir, 'owner-auth.json'), '{not-json');
-    const store = createOwnerPasswordStore({ dataDir, fallbackPassword: 'original environment password' });
-    assert.throws(() => store.verify('original environment password'), /credential/i);
+    assert.throws(
+      () => createOwnerPasswordStore({ dataDir, fallbackPassword: 'original environment password' }),
+      /credential/i,
+    );
   } finally { fs.rmSync(dataDir, { recursive: true, force: true }); }
 });
 

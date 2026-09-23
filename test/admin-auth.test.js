@@ -242,3 +242,20 @@ test('password reset rate limits by the forwarded client address behind Render',
   assert.equal((await request('203.0.113.10')).status, 429);
   assert.equal((await request('203.0.113.11')).status, 202);
 });
+
+test('password reset ignores spoofed trailing proxy addresses', async t => {
+  const app = await startServer({ RESEND_API_KEY: 're_test' });
+  t.after(() => app.stop());
+  for (let i = 0; i < 3; i += 1) {
+    const response = await fetch(`${app.baseUrl}/api/auth/password-reset/request`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': `198.51.100.20, 203.0.113.${i}` },
+      body: JSON.stringify({ email: 'nobody@example.com' }),
+    });
+    assert.equal(response.status, 202);
+  }
+  const blocked = await fetch(`${app.baseUrl}/api/auth/password-reset/request`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.20, 203.0.113.99' },
+    body: JSON.stringify({ email: 'nobody@example.com' }),
+  });
+  assert.equal(blocked.status, 429);
+});

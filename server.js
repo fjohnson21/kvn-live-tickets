@@ -30,7 +30,7 @@ const startupStore = readStore();
 if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
 
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 const port = process.env.PORT || 3000;
 const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
@@ -123,6 +123,7 @@ app.get('/api/shop/orders/:id/receipt',(req,res)=>{
 const safeUser = u => u ? ({id:u.id,name:u.name,email:u.email,role:u.role,organizationId:u.organizationId,permissions:u.permissions||[]}) : null;
 function cookieValue(req,name){ const prefix=`${name}=`; return String(req.headers.cookie||'').split(';').map(value=>value.trim()).find(value=>value.startsWith(prefix))?.slice(prefix.length)||''; }
 function sameSecret(left,right){ const a=crypto.createHash('sha256').update(String(left)).digest(),b=crypto.createHash('sha256').update(String(right)).digest(); return crypto.timingSafeEqual(a,b); }
+function clientAddress(req){ return String(req.headers['x-forwarded-for']||'').split(',')[0].trim() || req.socket.remoteAddress || ''; }
 function sessionCookie(token,maxAge=Math.floor(sessionTtlMs/1000)){ return `${sessionCookieName}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`; }
 function pruneSessions(){ const now=Date.now(); for(const [token,session] of sessions)if(session.expiresAt<=now)sessions.delete(token); while(sessions.size>1000)sessions.delete(sessions.keys().next().value); }
 function auth(req,res,next){ res.set('Cache-Control','no-store'); const token=cookieValue(req,sessionCookieName),session=sessions.get(token); if(!session||session.expiresAt<=Date.now()){if(token)sessions.delete(token);return res.status(401).json({error:'Sign in required.'});} const user=readStore().users.find(u=>u.id===session.userId); if(!user) return res.status(401).json({error:'Sign in required.'}); req.user=user; req.sessionToken=token; next(); }
@@ -177,7 +178,7 @@ app.post('/api/auth/owner', (req,res)=>{
   const configuredEmail=String(process.env.OWNER_EMAIL||'').trim().toLowerCase();
   if(!configuredEmail||!ownerPasswords.isConfigured()) return res.status(503).json({error:'Owner sign-in is not configured.'});
   const email=String(req.body.email||'').trim().toLowerCase(),password=String(req.body.password||'');
-  const attemptKey=`${req.ip}:${email}`,now=Date.now(); let attempts=loginAttempts.get(attemptKey);
+  const attemptKey=`${clientAddress(req)}:${email}`,now=Date.now(); let attempts=loginAttempts.get(attemptKey);
   if(attempts&&attempts.resetAt<=now){loginAttempts.delete(attemptKey);attempts=null;}
   if(attempts?.count>=loginAttemptLimit){res.set('Retry-After',String(Math.ceil((attempts.resetAt-now)/1000)));return res.status(429).json({error:'Too many sign-in attempts. Try again later.'});}
   if(!sameSecret(email,configuredEmail)||!ownerPasswords.verify(password)){const next=attempts||{count:0,resetAt:now+loginWindowMs};next.count+=1;loginAttempts.set(attemptKey,next);return res.status(401).json({error:'Email or password is incorrect.'});}
@@ -194,7 +195,7 @@ app.post('/api/auth/password-reset/request', async (req,res)=>{
   res.set('Cache-Control','no-store');
   const message='If that email matches the owner account, a secure reset link has been sent.';
   if(!process.env.RESEND_API_KEY) return res.status(503).json({error:'Password reset email is temporarily unavailable.'});
-  const key=req.ip,now=Date.now();let attempts=resetAttempts.get(key);
+  const key=clientAddress(req),now=Date.now();let attempts=resetAttempts.get(key);
   if(attempts&&attempts.resetAt<=now){resetAttempts.delete(key);attempts=null;}
   if(attempts?.count>=resetAttemptLimit){res.set('Retry-After',String(Math.ceil((attempts.resetAt-now)/1000)));return res.status(429).json({message:'Please wait before requesting another reset link.'});}
   const next=attempts||{count:0,resetAt:now+resetWindowMs};next.count+=1;resetAttempts.set(key,next);
