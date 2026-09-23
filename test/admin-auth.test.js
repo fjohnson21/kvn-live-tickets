@@ -2,10 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
 const projectRoot = new URL('../', import.meta.url);
+
+async function startEmailCapture() {
+  const messages = [];
+  let release;
+  let nextMessage = new Promise(resolve => { release = resolve; });
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      const message = JSON.parse(raw);
+      messages.push(message);
+      release(message);
+      nextMessage = new Promise(resolve => { release = resolve; });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: `email_${messages.length}` }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  return {
+    endpoint: `http://127.0.0.1:${server.address().port}/emails`,
+    waitForMessage: () => messages.length ? Promise.resolve(messages.at(-1)) : nextMessage,
+    stop: () => new Promise(resolve => server.close(resolve)),
+  };
+}
 
 async function startServer(extraEnv = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvn-auth-'));
@@ -125,4 +150,95 @@ test('control center presents owner sign-in and does not store bearer tokens', (
   assert.match(script, /\/api\/auth\/owner/);
   assert.match(script, /\/api\/auth\/logout/);
   assert.doesNotMatch(script, /localStorage|Authorization|kvn_token/);
+});
+
+test('owner can request a single-use email reset and replace the password without the old password', async t => {
+  const email = await startEmailCapture();
+  const server = await startServer({ RESEND_API_KEY: 're_test', RESEND_API_URL: email.endpoint });
+  t.after(() => server.stop());
+  t.after(() => email.stop());
+
+  const signedIn = await fetch(`${server.baseUrl}/api/auth/owner`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'frank@kingdomalliancepartners.com', password: 'correct horse battery staple' }),
+  });
+  const existingCookie = signedIn.headers.get('set-cookie').split(';')[0];
+
+  const unknown = await fetch(`${server.baseUrl}/api/auth/password-reset/request`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'someone@example.com' }),
+  });
+  assert.equal(unknown.status, 202);
+  assert.equal((await unknown.json()).message, 'If that email matches the owner account, a secure reset link has been sent.');
+
+  const requested = await fetch(`${server.baseUrl}/api/auth/password-reset/request`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'frank@kingdomalliancepartners.com' }),
+  });
+  assert.equal(requested.status, 202);
+  const requestBody = await requested.json();
+  assert.match(requestBody.message, /if that email matches/i);
+  assert.equal(requestBody.resetUrl, undefined);
+  const resetEmail = await email.waitForMessage();
+  assert.deepEqual(resetEmail.to, ['frank@kingdomalliancepartners.com']);
+  const resetUrl = resetEmail.text.match(/https?:\/\/\S+reset-password\.html\?token=[a-f0-9]+/)[0];
+  const token = new URL(resetUrl).searchParams.get('token');
+
+  const weak = await fetch(`${server.baseUrl}/api/auth/password-reset/complete`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, newPassword: 'too-short' }),
+  });
+  assert.equal(weak.status, 400);
+
+  const completed = await fetch(`${server.baseUrl}/api/auth/password-reset/complete`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, newPassword: 'new correct horse battery staple' }),
+  });
+  assert.equal(completed.status, 200);
+
+  const priorSession = await fetch(`${server.baseUrl}/api/dashboard`, { headers: { cookie: existingCookie } });
+  assert.equal(priorSession.status, 401);
+
+  const oldPassword = await fetch(`${server.baseUrl}/api/auth/owner`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'frank@kingdomalliancepartners.com', password: 'correct horse battery staple' }),
+  });
+  assert.equal(oldPassword.status, 401);
+
+  const newPassword = await fetch(`${server.baseUrl}/api/auth/owner`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'frank@kingdomalliancepartners.com', password: 'new correct horse battery staple' }),
+  });
+  assert.equal(newPassword.status, 200);
+
+  const reused = await fetch(`${server.baseUrl}/api/auth/password-reset/complete`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, newPassword: 'another correct horse battery staple' }),
+  });
+  assert.equal(reused.status, 400);
+});
+
+test('control center exposes forgot-password and reset-password interfaces', () => {
+  const dashboard = fs.readFileSync(new URL('../public/dashboard.html', import.meta.url), 'utf8');
+  const dashboardScript = fs.readFileSync(new URL('../public/dashboard.js', import.meta.url), 'utf8');
+  const resetPage = fs.readFileSync(new URL('../public/reset-password.html', import.meta.url), 'utf8');
+  assert.match(dashboard, /id="forgotPassword"/);
+  assert.match(dashboard, /id="passwordResetRequest"/);
+  assert.match(dashboardScript, /\/api\/auth\/password-reset\/request/);
+  assert.match(resetPage, /autocomplete="new-password"/);
+  assert.match(resetPage, /\/api\/auth\/password-reset\/complete/);
+  assert.match(resetPage, /name="referrer" content="no-referrer"/);
+  assert.match(resetPage, /history\.replaceState/);
+});
+
+test('password reset rate limits by the forwarded client address behind Render', async t => {
+  const server = await startServer({ RESEND_API_KEY: 're_test' });
+  t.after(() => server.stop());
+  const request = address => fetch(`${server.baseUrl}/api/auth/password-reset/request`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': address },
+    body: JSON.stringify({ email: 'someone@example.com' }),
+  });
+  for (let count = 0; count < 3; count += 1) assert.equal((await request('203.0.113.10')).status, 202);
+  assert.equal((await request('203.0.113.10')).status, 429);
+  assert.equal((await request('203.0.113.11')).status, 202);
 });

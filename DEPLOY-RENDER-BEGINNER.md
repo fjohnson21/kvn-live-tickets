@@ -23,8 +23,9 @@ Set these in Render, not in GitHub:
 - `OWNER_EMAIL` = your owner email
 - `DATA_DIR` = `/var/data`
 - `UPLOAD_DIR` = `/var/data/uploads`
-- `RESEND_API_KEY` = optional during first test
-- `EMAIL_FROM` = optional during first test
+- `RESEND_API_KEY` = required for ticket confirmations and owner password recovery
+- `EMAIL_FROM` = verified sender used for ticket and password-reset email
+- `PASSWORD_RESET_EMAIL_FROM` = optional verified sender override for password-reset email
 
 Do not commit real Stripe, email, Apple Wallet, or Google Wallet secrets to GitHub.
 

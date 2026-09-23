@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTicketConfirmationDispatcher, deliverTicketConfirmation, sendTicketConfirmation } from '../lib/email.js';
+import { createTicketConfirmationDispatcher, deliverTicketConfirmation, sendOwnerPasswordReset, sendTicketConfirmation } from '../lib/email.js';
 
 const orderFixture = () => ({
   id: 'ord_123',
@@ -189,4 +189,24 @@ test('welcome email uses Kingdom Disciple branding and current attribution terms
   const content=buildDiscipleWelcome({disciple:{name:'Briannah'},link:'https://disciple.kvnlive.com/briannahcooper'});
   assert.match(content.subject,/Kingdom Disciple/);
   assert.match(content.text,/30-day attribution/i);
+});
+
+test('owner password reset email uses the configured provider endpoint and secure link', async () => {
+  let request;
+  const result = await sendOwnerPasswordReset({
+    email: 'frank@kingdomalliancepartners.com',
+    resetUrl: 'https://tickets.example/reset-password.html?token=secret',
+    apiKey: 're_test',
+    endpoint: 'https://email.test/messages',
+    fetchImpl: async (url, options) => {
+      request = { url, headers: options.headers, body: JSON.parse(options.body) };
+      return { ok: true, status: 200, json: async () => ({ id: 'email_reset' }) };
+    },
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(request.url, 'https://email.test/messages');
+  assert.equal(request.headers.Authorization, 'Bearer re_test');
+  assert.deepEqual(request.body.to, ['frank@kingdomalliancepartners.com']);
+  assert.match(request.body.text, /expires in 15 minutes/i);
+  assert.match(request.body.text, /reset-password\.html\?token=secret/);
 });

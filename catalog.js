@@ -7,6 +7,7 @@ OWNER_EMAIL=owner@kingdomvibe.example
 
 RESEND_API_KEY=re_replace_me
 EMAIL_FROM=KVN Live Tickets <tickets@yourdomain.com>
+PASSWORD_RESET_EMAIL_FROM=KVN Control Center <info@yourdomain.com>
 
 # v3 wallet integrations
 APPLE_PASS_CERT=
