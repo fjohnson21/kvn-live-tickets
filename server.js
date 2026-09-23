@@ -44,7 +44,7 @@ const loginAttemptLimit = 5;
 const resetWindowMs = 60 * 60 * 1000;
 const resetAttemptLimit = 3;
 const runtimeDataDir = process.env.DATA_DIR || path.resolve('data');
-const ownerPasswords = createOwnerPasswordStore({ dataDir: runtimeDataDir, fallbackPassword: process.env.OWNER_PASSWORD || '' });
+const ownerPasswords = createOwnerPasswordStore({ dataDir: runtimeDataDir });
 const passwordResets = createPasswordResetManager();
 const dispatchTicketConfirmation = createTicketConfirmationDispatcher();
 const requireDir=p=>fs.mkdirSync(p,{recursive:true}); const pathJoin=path.join; const fsWrite=fs.writeFileSync;

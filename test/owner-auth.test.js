@@ -8,10 +8,10 @@ import { createOwnerPasswordStore, createPasswordResetManager } from '../lib/own
 test('reset password persists across store instances and supersedes the environment fallback', () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvn-owner-auth-'));
   try {
-    const first = createOwnerPasswordStore({ dataDir, fallbackPassword: 'original environment password' });
+    const first = createOwnerPasswordStore({ dataDir, bootstrapPassword: 'original environment password' });
     assert.equal(first.verify('original environment password'), true);
     first.set('replacement password value');
-    const restarted = createOwnerPasswordStore({ dataDir, fallbackPassword: 'original environment password' });
+    const restarted = createOwnerPasswordStore({ dataDir });
     assert.equal(restarted.verify('replacement password value'), true);
     assert.equal(restarted.verify('original environment password'), false);
   } finally { fs.rmSync(dataDir, { recursive: true, force: true }); }
@@ -22,9 +22,18 @@ test('corrupt persisted owner credentials fail closed instead of restoring the e
   try {
     fs.writeFileSync(path.join(dataDir, 'owner-auth.json'), '{not-json');
     assert.throws(
-      () => createOwnerPasswordStore({ dataDir, fallbackPassword: 'original environment password' }),
+      () => createOwnerPasswordStore({ dataDir, bootstrapPassword: 'original environment password' }),
       /credential/i,
     );
+  } finally { fs.rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+test('missing persisted owner credentials fail closed without explicit bootstrap', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvn-owner-auth-'));
+  try {
+    const store = createOwnerPasswordStore({ dataDir });
+    assert.equal(store.isConfigured(), false);
+    assert.equal(store.verify('original environment password'), false);
   } finally { fs.rmSync(dataDir, { recursive: true, force: true }); }
 });
 
