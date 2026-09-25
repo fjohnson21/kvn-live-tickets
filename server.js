@@ -12,10 +12,15 @@ import { applyEarlyReleasePricing, checkoutExpiration, normalizeTicketCartItem, 
 import { finalizeOrderItems } from './lib/finalize.js';
 import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
-import { createTicketConfirmationDispatcher, sendDiscipleWelcome, sendOwnerPasswordReset } from './lib/email.js';
+import { createTicketConfirmationDispatcher, sendDiscipleApplicationNotice, sendDiscipleWelcome, sendOwnerPasswordReset } from './lib/email.js';
 import { createOwnerPasswordStore, createPasswordResetManager } from './lib/owner-auth.js';
 import { upsertDiscipleFromApplication } from './lib/disciple-sync.js';
 import { receiveDiscipleApplication } from './lib/disciple-intake.js';
+import { approveDiscipleApplication, resendDiscipleWelcome, reviewDiscipleApplication, setDiscipleActiveStatus } from './lib/disciple-operations.js';
+import { buildSystemHealth } from './lib/system-health.js';
+import { creditDiscipleSale, markDiscipleCommissionPaid, reverseDiscipleCommission } from './lib/disciple-financial-operations.js';
+import { discipleApplicationsCsv, disciplesCsv, discipleCommissionsCsv, disciplePayoutsCsv } from './lib/disciple-exports.js';
+import { flagOrderCommissionsForReversal } from './lib/disciple-reversals.js';
 import { setLeaderStatus,assignTeamMember,endTeamAssignment } from './lib/disciple-teams.js';
 import { createCommunityBonus,reverseCommunityBonusForCommission } from './lib/disciple-community-bonus.js';
 import { awardLeaderBundle,inviteMemberBundle } from './lib/disciple-bundles.js';
@@ -49,6 +54,18 @@ const passwordResets = createPasswordResetManager();
 const dispatchTicketConfirmation = createTicketConfirmationDispatcher();
 const requireDir=p=>fs.mkdirSync(p,{recursive:true}); const pathJoin=path.join; const fsWrite=fs.writeFileSync;
 
+function recordStripeReversal(event){
+  const object=event.data?.object||{},paymentIntentId=typeof object.payment_intent==='string'?object.payment_intent:object.payment_intent?.id;
+  const d=readStore(),orderId=String(object.metadata?.order_id||'');
+  const order=[...(d.orders||[]),...(d.shopOrders||[])].find(item=>item.id===orderId||(paymentIntentId&&item.stripePaymentIntentId===paymentIntentId));
+  if(!order)return [];
+  const reason=event.type==='charge.dispute.created'?'Stripe dispute opened.':'Stripe refund recorded.';
+  const affected=flagOrderCommissionsForReversal(d,{orderId:order.id,reason,sourceEventId:event.id},{id});
+  order.paymentAttention={type:event.type,eventId:event.id,recordedAt:new Date().toISOString()};
+  writeStore(d);
+  return affected;
+}
+
 // Stripe webhook must receive the raw request body before JSON parsing.
 app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)=>{
   try {
@@ -64,6 +81,7 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
       if(event.data.object.metadata?.order_type==='apparel'){const d=readStore();expireShopSession(d,event.data.object);writeStore(d);}
       else expireSession(event.data.object);
     }
+    if(event.type==='charge.refunded'||event.type==='charge.dispute.created')recordStripeReversal(event);
     res.json({received:true});
   } catch(err) { console.error('Webhook error',err.message); res.status(400).send(`Webhook Error: ${err.message}`); }
 });
@@ -228,13 +246,21 @@ app.post('/api/organizations/apply', (req,res)=>{ const d=readStore(); const nam
 app.put('/api/organizations/:id/profile', auth, (req,res)=>{ const d=readStore(),org=d.organizations.find(x=>x.id===req.params.id); if(!org||!(req.user.role==='owner'||req.user.organizationId===org.id)) return res.status(403).json({error:'No access.'}); const b=req.body||{}; if(b.name) {org.name=String(b.name);org.slug=org.slug||slugify(org.name);} org.profile={...(org.profile||{}),contactName:String(b.contactName??org.profile?.contactName??''),businessEmail:String(b.businessEmail??org.profile?.businessEmail??''),phone:String(b.phone??org.profile?.phone??''),website:String(b.website??org.profile?.website??''),organizationType:String(b.organizationType??org.profile?.organizationType??''),description:String(b.description??org.profile?.description??''),publicContact:Boolean(b.publicContact),social:{...(org.profile?.social||{}),...(b.social||{})},address:{...(org.profile?.address||{}),...(b.address||{})}}; org.onboarding={...(org.onboarding||{}),profile:true}; writeStore(d);res.json({organization:org}); });
 
 app.get('/api/dashboard', auth, (req,res)=>{ const d=readStore(); const events=req.user.role==='owner'?d.events:d.events.filter(e=>e.organizationId===req.user.organizationId); const orders=req.user.role==='owner'?d.orders:d.orders.filter(o=>events.some(e=>e.id===o.eventId)); const organizations=req.user.role==='owner'?d.organizations:d.organizations.filter(o=>o.id===req.user.organizationId); const gross=orders.reduce((n,o)=>n+(o.amountTotal||0),0); res.json({user:safeUser(req.user),events,orders,organizations,discounts:d.discounts.filter(x=>req.user.role==='owner'||events.some(e=>e.id===x.eventId)),settings:d.settings,staff:d.users.filter(u=>u.role==='staff'&&(req.user.role==='owner'||u.organizationId===req.user.organizationId)),payouts:d.payouts.filter(p=>req.user.role==='owner'||organizations.some(o=>o.id===p.organizationId)),disciples:d.disciples.filter(x=>req.user.role==='owner'||x.organizationId===req.user.organizationId),discipleCommissions:d.discipleCommissions.filter(c=>req.user.role==='owner'||events.some(e=>e.id===c.eventId)),disciplePayouts:d.disciplePayouts.filter(p=>req.user.role==='owner'||d.disciples.some(x=>x.id===p.discipleId&&x.organizationId===req.user.organizationId)),discipleApplications:req.user.role==='owner'?d.discipleApplications:[],discipleTeams:req.user.role==='owner'?d.discipleTeams:[],discipleCommunityBonuses:req.user.role==='owner'?d.discipleCommunityBonuses:[],discipleBundleActions:req.user.role==='owner'?d.discipleBundleActions:[],communityBonusLegalApproved:process.env.COMMUNITY_BONUS_LEGAL_APPROVED==='true',metrics:{gross,orders:orders.length,tickets:orders.reduce((n,o)=>n+(o.tickets?.length||0),0),events:events.length}}); });
+app.get('/api/system-health',auth,owner,(req,res)=>{
+  let storageProbe={ok:true,ownerAuthReady:false,persistentConfigured:Boolean(process.env.DATA_DIR)};
+  const probeFile=path.join(runtimeDataDir,`.kvn-write-probe-${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
+  try{fs.writeFileSync(probeFile,'kvn');if(fs.readFileSync(probeFile,'utf8')!=='kvn')throw new Error('storage probe mismatch');storageProbe.ownerAuthReady=ownerPasswords.isConfigured();}
+  catch{storageProbe={ok:false,ownerAuthReady:false};}
+  finally{try{if(fs.existsSync(probeFile))fs.unlinkSync(probeFile);}catch{}}
+  res.json(buildSystemHealth(process.env,storageProbe,readStore()));
+});
 
 app.get('/api/shop/orders',auth,owner,(req,res)=>{const d=readStore();const status=String(req.query.status||'');const orders=status?d.shopOrders.filter(item=>item.status===status||item.fulfillmentStatus===status):d.shopOrders;res.json({orders,products:d.shopProducts,metrics:shopMetrics(d)});});
 app.get('/api/shop/orders.csv',auth,owner,(req,res)=>{const d=readStore();res.type('text/csv').set('Content-Disposition','attachment; filename="kvn-shop-orders.csv"').send(shopOrdersCsv(d.shopOrders));});
 app.post('/api/shop/orders/:id/resend',auth,owner,async(req,res)=>{const d=readStore(),order=d.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});const confirmationEmail=await deliverShopConfirmation({order,apiKey:process.env.RESEND_API_KEY,from:process.env.SHOP_EMAIL_FROM||'Kingdom Vibe Shop <shop@kvnlive.com>',force:true});d.shopAudit.push({id:id('sha'),orderId:order.id,action:'confirmation_resend',userId:req.user.id,createdAt:new Date().toISOString()});writeStore(d);res.status(confirmationEmail.status==='sent'?200:502).json({confirmationEmail});});
 app.post('/api/shop/orders/:id/ship',auth,owner,(req,res)=>{const d=readStore(),order=d.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});const carrier=String(req.body.carrier||'').trim(),trackingNumber=String(req.body.trackingNumber||'').trim();if(!carrier||!trackingNumber)return res.status(400).json({error:'Carrier and tracking number are required.'});order.fulfillmentStatus='shipped';order.carrier=carrier;order.trackingNumber=trackingNumber;order.shippedAt=new Date().toISOString();d.shopAudit.push({id:id('sha'),orderId:order.id,action:'shipped',userId:req.user.id,meta:{carrier,trackingNumber},createdAt:order.shippedAt});writeStore(d);res.json({order});});
 app.patch('/api/shop/orders/:id/size',auth,owner,(req,res)=>{const d=readStore(),order=d.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});if(order.fulfillmentStatus!=='awaiting_fulfillment')return res.status(409).json({error:'Only unfulfilled orders can change size.'});const index=Number(req.body.itemIndex),size=String(req.body.size||''),line=order.items[index],product=d.shopProducts.find(item=>item.id===line?.productId);if(!line||!product?.sizes.includes(size))return res.status(400).json({error:'Choose a valid order item and size.'});if(Number(product.sizeInventory[size]||0)<line.quantity)return res.status(409).json({error:`Only ${Number(product.sizeInventory[size]||0)} ${size} remaining.`});product.sizeInventory[size]-=line.quantity;product.sizeInventory[line.size]+=line.quantity;const prior=line.size;line.size=size;line.unitAmount=product.unitAmountBySize[size];order.merchandiseSubtotal=order.items.reduce((n,item)=>n+item.unitAmount*item.quantity,0);d.shopAudit.push({id:id('sha'),orderId:order.id,action:'size_changed',userId:req.user.id,meta:{prior,size,index},createdAt:new Date().toISOString()});writeStore(d);res.json({order});});
-app.post('/api/shop/orders/:id/refund',auth,owner,async(req,res)=>{const d=readStore(),order=d.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});if(!stripe)return res.status(503).json({error:'Stripe is not configured.'});const session=await stripe.checkout.sessions.retrieve(order.stripeSessionId);if(!session.payment_intent)return res.status(409).json({error:'No payment intent available.'});await stripe.refunds.create({payment_intent:session.payment_intent});refundShopOrder(d,order.id);d.shopAudit.push({id:id('sha'),orderId:order.id,action:'refunded',userId:req.user.id,createdAt:new Date().toISOString()});writeStore(d);res.json({order});});
+app.post('/api/shop/orders/:id/refund',auth,owner,async(req,res)=>{const snapshot=readStore(),order=snapshot.shopOrders.find(item=>item.id===req.params.id);if(!order)return res.status(404).json({error:'Shop order not found.'});if(order.status==='refunded')return res.json({order});if(!stripe)return res.status(503).json({error:'Stripe is not configured.'});const session=await stripe.checkout.sessions.retrieve(order.stripeSessionId);if(!session.payment_intent)return res.status(409).json({error:'No payment intent available.'});await stripe.refunds.create({payment_intent:session.payment_intent},{idempotencyKey:`shop-refund:${order.id}`});const latest=readStore(),current=latest.shopOrders.find(item=>item.id===order.id);if(!current)return res.status(409).json({error:'Shop order changed while refunding. Stripe refund was submitted; review the order before retrying.'});const wasRefunded=current.status==='refunded';refundShopOrder(latest,current.id);if(!wasRefunded)latest.shopAudit.push({id:id('sha'),orderId:current.id,action:'refunded',userId:req.user.id,createdAt:new Date().toISOString()});writeStore(latest);res.json({order:current});});
 
 app.post('/api/events', auth, (req,res)=>{ const d=readStore(); const title=String(req.body.title||'Untitled Event').trim(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId; const event={id:id('evt'),organizationId:orgId,slug:`${slugify(title)}-${Math.random().toString(36).slice(2,6)}`,title,subtitle:req.body.subtitle||'',description:req.body.description||'',date:req.body.date||'',venue:req.body.venue||'',location:req.body.location||'',status:req.user.role==='owner'?'draft':'pending',featured:false,feeSettings:{strategy:'buyer',kvnPercent:2.95,kvnFixedPerTicket:195,merchantPercent:2.9,merchantFixed:30,merchantGrossUp:true,refundKvnFees:false,refundMerchantFees:false},theme:{accent:'#e2252b',surface:'#111111',logoText:title.toUpperCase().slice(0,20)},products:[],layout:[{id:id('b'),type:'hero',title,body:req.body.subtitle||'Event experience'},{id:id('b'),type:'tickets',title:'Tickets',body:'Choose your experience.'}],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}; d.events.push(event); writeStore(d); res.status(201).json({event}); });
 
@@ -266,63 +292,81 @@ app.post('/api/integrations/disciples/applications',(req,res)=>{
   if(idempotencyKey.length<8||idempotencyKey.length>120)return res.status(400).json({error:'A valid idempotency key is required.'});
   try{
     const d=readStore();
-    const result=receiveDiscipleApplication(d,req.body,{idempotencyKey,sourceSystem:'kvnlive-site',ip:req.ip,userAgent:req.get('user-agent')||''},{id});
+    const legacyTransfer=req.get('x-kvn-legacy-transfer')==='1';
+    if(legacyTransfer&&idempotencyKey!==`legacy:${String(req.body?.legacyApplicationReference||'').trim()}`)return res.status(400).json({error:'Legacy transfer reference does not match its idempotency key.'});
+    const result=receiveDiscipleApplication(d,req.body,{idempotencyKey,sourceSystem:legacyTransfer?'kvnlive-site-legacy':'kvnlive-site',ip:legacyTransfer?String(req.body?.sourceSubmissionIp||req.ip):req.ip,userAgent:legacyTransfer?String(req.body?.sourceUserAgent||''):req.get('user-agent')||'',acceptedAt:legacyTransfer?String(req.body?.agreementAcceptedAt||''):undefined},{id,allowLegacyAgreement:legacyTransfer});
     writeStore(d);
     res.status(result.created?201:200).json({ok:true,applicationReference:result.application.applicationReference,created:result.created});
   }catch(error){res.status(/too large/i.test(error.message)?413:400).json({error:error.message});}
 });
 
 app.post('/api/disciples/apply', (req,res)=>{
-  const d=readStore(),b=req.body||{}; const name=String(b.name||'').trim(),email=String(b.email||'').trim().toLowerCase();
-  if(!name||!email)return res.status(400).json({error:'Name and email are required.'});
-  if(!b.attested)return res.status(400).json({error:'Agreement attestation is required.'});
-  const now=new Date().toISOString();
-  const existing=d.discipleApplications.find(x=>x.email===email&&['submitted','resubmitted'].includes(x.status));
-  if(existing?.agreementVersion==='2.2')return res.status(409).json({error:'An application for this email is already pending.',applicationReference:existing.applicationReference});
-  if(existing){existing.status='superseded';existing.supersededAt=now;existing.updatedAt=now;}
-  const reference='KVN-D-'+now.slice(0,10).replaceAll('-','')+'-'+crypto.randomBytes(4).toString('hex').toUpperCase();
-  const application={id:id('dapp'),applicationReference:reference,status:'submitted',name,email,phone:String(b.phone||''),city:String(b.city||''),state:String(b.state||''),shirtSize:String(b.shirtSize||''),market:String(b.market||''),instagram:String(b.instagram||''),facebook:String(b.facebook||''),tiktok:String(b.tiktok||''),audienceSize:String(b.audienceSize||''),motivation:String(b.motivation||''),promotionPlan:String(b.promotionPlan||''),preferredName:String(b.preferredName||''),weeklyPostCommitment:Boolean(b.weeklyPostCommitment),agreementVersion:'2.2',agreementAcceptedAt:now,typedLegalName:String(b.typedLegalName||name),submittedAt:now,updatedAt:now};
-  d.discipleApplications.unshift(application);writeStore(d);
-  res.status(201).json({ok:true,applicationReference:reference,status:'submitted',message:'Your Kingdom Vibe Disciple application has been received.'});
+  res.status(410).json({error:'Applications have moved to the verified Kingdom Vibe Live agreement flow.',applicationUrl:'https://kvnlive.com/disciples'});
 });
 app.get('/api/disciple-applications',auth,owner,(req,res)=>{const d=readStore();res.json({applications:d.discipleApplications});});
 app.post('/api/disciple-applications/:id/status',auth,owner,async(req,res)=>{
   const d=readStore(),a=d.discipleApplications.find(x=>x.id===req.params.id||x.applicationReference===req.params.id);
   if(!a)return res.status(404).json({error:'Application not found.'});
   const status=String(req.body.status||''); if(!['approved','rejected','needs_info'].includes(status))return res.status(400).json({error:'Invalid application status.'});
-  if(status!=='approved'){a.status=status;a.updatedAt=new Date().toISOString();writeStore(d);return res.json({application:a});}
-  if(!['submitted','resubmitted','needs_info'].includes(a.status))return res.status(409).json({error:'Application is not approval-eligible.'});
-  if(a.agreementVersion!=='2.2')return res.status(409).json({error:'Applicant must accept the current Kingdom Disciple Agreement v2.2 before approval.'});
-  const result=upsertDiscipleFromApplication(d,{...a,applicationStatus:'approved',defaultCommissionPercent:10},{id});
-  const disciple=result.disciple; disciple.defaultCommissionPercent=10; const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(disciple.handle);
-  disciple.welcomeEmail=await sendDiscipleWelcome({disciple,link:trackingUrl,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'});
-  a.status='approved';a.approvedAt=new Date().toISOString();a.approvedDiscipleId=disciple.id;a.updatedAt=a.approvedAt;
-  d.auditLogs.unshift({id:id('log'),userId:req.user.id,userName:req.user.name,action:'disciple.approve',entityType:'disciple_application',entityId:a.id,meta:{applicationReference:a.applicationReference,discipleId:disciple.id},createdAt:a.approvedAt});
-  writeStore(d);res.json({ok:true,application:a,disciple,trackingUrl,welcomeEmail:disciple.welcomeEmail});
+  if(status!=='approved'){
+    try{const result=await reviewDiscipleApplication(d,{applicationId:a.id,status,reason:req.body.reason,actor:req.user},{id,persist:writeStore,reload:readStore,sendNotice:({application,status,reason,idempotencyKey})=>sendDiscipleApplicationNotice({application,status,reason,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'})});return res.json({...result,notificationAttention:result.notification.status!=='sent'});}
+    catch(error){return res.status(error.statusCode||500).json({error:error.message||'Unable to update application.'});}
+  }
+  try{
+    const result=await approveDiscipleApplication(d,{applicationId:a.id,actor:req.user},{
+      id,persist:writeStore,reload:readStore,
+      sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'})
+    });
+    res.json({ok:true,...result});
+  }catch(error){res.status(error.statusCode||500).json({error:error.message||'Unable to approve Disciple application.'});}
+});
+app.post('/api/disciples/:id/welcome/resend',auth,owner,async(req,res)=>{
+  try{
+    const d=readStore();
+    const result=await resendDiscipleWelcome(d,{discipleId:req.params.id,actor:req.user},{
+      id,persist:writeStore,reload:readStore,
+      sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'})
+    });
+    res.status(result.welcomeEmail.status==='sent'?200:502).json({ok:result.welcomeEmail.status==='sent',...result});
+  }catch(error){res.status(error.statusCode||500).json({error:error.message||'Unable to resend welcome email.'});}
+});
+app.post('/api/disciples/:id/status',auth,owner,(req,res)=>{
+  try{
+    const d=readStore();
+    const result=setDiscipleActiveStatus(d,{discipleId:req.params.id,active:req.body.active===true,reason:req.body.reason,actor:req.user},{id,persist:writeStore});
+    res.json({ok:true,...result});
+  }catch(error){res.status(error.statusCode||500).json({error:error.message||'Unable to update Disciple status.'});}
+});
+app.get('/api/disciples/:id/audit',auth,owner,(req,res)=>{
+  const d=readStore();
+  const disciple=d.disciples.find(item=>item.id===req.params.id);
+  if(!disciple)return res.status(404).json({error:'Disciple not found.'});
+  const application=d.discipleApplications.find(item=>item.approvedDiscipleId===disciple.id||item.applicationReference===disciple.sourceApplicationReference);
+  const events=d.auditLogs.filter(item=>(item.entityType==='disciple'&&item.entityId===disciple.id)||(application&&item.entityType==='disciple_application'&&item.entityId===application.id));
+  res.json({events});
 });
 app.post('/api/integrations/disciples/approve', async (req,res)=>{
   try{
     if(!validSyncSecret(req))return res.status(401).json({error:'Invalid integration secret.'});
     const d=readStore();
     const result=upsertDiscipleFromApplication(d,req.body,{id});
-    const disciple=result.disciple;
-    const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(disciple.handle);
-    if(result.created||req.body.resendWelcome===true){
-      disciple.welcomeEmail=await sendDiscipleWelcome({
-        disciple,
-        link:trackingUrl,
-        apiKey:process.env.RESEND_API_KEY,
-        from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'
-      });
-    }
+    let disciple=result.disciple;
+    let trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(disciple.handle),welcomeEmail=disciple.welcomeEmail||null;
     writeStore(d);
-    res.status(result.created?201:200).json({ok:true,created:result.created,disciple,trackingUrl,welcomeEmail:disciple.welcomeEmail||null});
+    if(result.created||req.body.resendWelcome===true){
+      const delivered=await resendDiscipleWelcome(d,{discipleId:disciple.id,actor:{id:'system',name:'KVN Site sync'}},{
+        id,persist:writeStore,reload:readStore,
+        sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'})
+      });
+      disciple=delivered.disciple;welcomeEmail=delivered.welcomeEmail;
+    }
+    res.status(result.created?201:200).json({ok:true,created:result.created,disciple,trackingUrl,welcomeEmail});
   }catch(err){
     res.status(err.statusCode||500).json({error:err.message||'Unable to sync approved Disciple application.'});
   }
 });
 
-app.post('/api/disciples', auth, async (req,res)=>{
+app.post('/api/disciples', auth, owner, async (req,res)=>{
   const d=readStore(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId;
   const code=String(req.body.code||req.body.name||'DISCIPLE').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,24);
   if(!code) return res.status(400).json({error:'Disciple code required.'});
@@ -333,15 +377,14 @@ app.post('/api/disciples', auth, async (req,res)=>{
   const disciple={id:id('dsc'),name:String(req.body.name||'Disciple'),email:String(req.body.email||''),code,handle,status:'active',organizationId:orgId,defaultCommissionPercent:Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent ?? d.settings.defaultDiscipleCommissionPercent ?? 10))),eventRates:[],payoutMethod:String(req.body.payoutMethod||'manual'),payoutNotes:String(req.body.payoutNotes||''),createdAt:new Date().toISOString()};
   d.disciples.push(disciple); writeStore(d);
   const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(handle);
-  const welcomeEmail=await sendDiscipleWelcome({disciple,link:trackingUrl,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'});
-  disciple.welcomeEmail=welcomeEmail; writeStore(d);
-  res.status(201).json({disciple,trackingUrl,welcomeEmail});
+  const delivered=await resendDiscipleWelcome(d,{discipleId:disciple.id,actor:req.user},{id,persist:writeStore,reload:readStore,sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'})});
+  res.status(201).json({disciple:delivered.disciple,trackingUrl,welcomeEmail:delivered.welcomeEmail});
 });
-app.put('/api/disciples/:id', auth, (req,res)=>{
+app.put('/api/disciples/:id', auth, owner, (req,res)=>{
   const d=readStore(),x=d.disciples.find(v=>v.id===req.params.id); if(!x||!(req.user.role==='owner'||x.organizationId===req.user.organizationId)) return res.status(404).json({error:'Disciple not found.'});
   for(const k of ['name','email','status','payoutMethod','payoutNotes']) if(req.body[k]!==undefined)x[k]=req.body[k]; if(req.body.defaultCommissionPercent!==undefined)x.defaultCommissionPercent=Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent)||0)); writeStore(d);res.json({disciple:x});
 });
-app.post('/api/disciples/:id/event-rate', auth, (req,res)=>{
+app.post('/api/disciples/:id/event-rate', auth, owner, (req,res)=>{
   const d=readStore(),x=d.disciples.find(v=>v.id===req.params.id),e=d.events.find(v=>v.id===req.body.eventId); if(!x||!e||!(req.user.role==='owner'||(x.organizationId===req.user.organizationId&&e.organizationId===req.user.organizationId))) return res.status(403).json({error:'No access.'});
   const percent=Math.max(0,Math.min(100,Number(req.body.percent)||0)); x.eventRates ||= []; const prior=x.eventRates.find(v=>v.eventId===e.id); if(prior)prior.percent=percent;else x.eventRates.push({eventId:e.id,percent}); writeStore(d);res.json({disciple:x});
 });
@@ -356,11 +399,8 @@ function discipleRedirect(req,res,handle){
 app.get('/disciple/:handle',(req,res)=>discipleRedirect(req,res,req.params.handle));
 app.get('/:handle',(req,res,next)=>{ const host=String(req.headers.host||'').split(':')[0].toLowerCase(); if(host!=='disciple.kvnlive.com')return next(); return discipleRedirect(req,res,req.params.handle); });
 app.post('/api/disciple-commissions/:id/mark-paid', auth, owner, (req,res)=>{
-  const d=readStore(),c=d.discipleCommissions.find(x=>x.id===req.params.id); if(!c)return res.status(404).json({error:'Commission not found.'});
-  if(c.status==='reversed')return res.status(409).json({error:'Reversed commission cannot be paid.'});
-  c.status='paid'; c.paidAt=new Date().toISOString(); c.paymentReference=String(req.body.paymentReference||'manual');
-  d.disciplePayouts.push({id:id('dsp'),discipleId:c.discipleId,commissionId:c.id,amount:c.amount,status:'paid',paymentReference:c.paymentReference,createdAt:c.paidAt});
-  writeStore(d); res.json({commission:c});
+  try{const d=readStore(),result=markDiscipleCommissionPaid(d,{commissionId:req.params.id,paymentReference:req.body.paymentReference,actorId:req.user.id},{id});writeStore(d);res.json(result);}
+  catch(error){res.status(error.statusCode||400).json({error:error.message});}
 });
 
 app.post('/api/disciple-community-bonuses/:id/mark-paid',auth,owner,(req,res)=>{
@@ -376,21 +416,20 @@ app.post('/api/disciple-teams/:assignmentId/end',auth,owner,(req,res)=>{try{cons
 app.post('/api/disciples/:id/bundles/complimentary',auth,owner,(req,res)=>{try{const d=readStore(),action=awardLeaderBundle(d,{...req.body,discipleId:req.params.id,actorId:req.user.id},{id});writeStore(d);res.status(201).json({action});}catch(error){res.status(error.statusCode||400).json({error:error.message});}});
 app.post('/api/disciples/:id/bundles/invite',auth,owner,(req,res)=>{try{const d=readStore(),action=inviteMemberBundle(d,{...req.body,discipleId:req.params.id,actorId:req.user.id},{id});writeStore(d);res.status(201).json({action});}catch(error){res.status(error.statusCode||400).json({error:error.message});}});
 app.post('/api/disciple-commissions/:id/reverse', auth, owner, (req,res)=>{
-  const d=readStore(),c=d.discipleCommissions.find(x=>x.id===req.params.id); if(!c)return res.status(404).json({error:'Commission not found.'});
-  if(c.status==='paid')return res.status(409).json({error:'Paid commission requires a manual adjustment.'});
-  c.status='reversed'; c.reversedAt=new Date().toISOString(); c.reversalReason=String(req.body.reason||'refund_or_chargeback');
-  reverseCommunityBonusForCommission(d,c.id);
-  writeStore(d); res.json({commission:c});
+  try{const d=readStore(),result=reverseDiscipleCommission(d,{commissionId:req.params.id,reason:req.body.reason,actorId:req.user.id},{id,reverseCommunityBonus:reverseCommunityBonusForCommission});writeStore(d);res.json(result);}
+  catch(error){res.status(error.statusCode||400).json({error:error.message});}
 });
 
 app.post('/api/disciples/:id/credit-sale', auth, owner, (req,res)=>{
-  const d=readStore(),disciple=d.disciples.find(x=>x.id===req.params.id&&x.status==='active'); if(!disciple)return res.status(404).json({error:'Active Disciple not found.'});
-  const amountPaid=Math.max(0,Math.round(Number(req.body.amountPaid)||0)); if(amountPaid<=0)return res.status(400).json({error:'amountPaid must be supplied in cents.'});
-  const rate=Math.max(0,Math.min(100,Number(req.body.ratePercent??disciple.defaultCommissionPercent??d.settings.defaultDiscipleCommissionPercent??10)));
-  const amount=Math.round(amountPaid*rate/100),now=new Date();
-  const commission={id:id('com'),discipleId:disciple.id,eventId:'',orderId:String(req.body.reference||id('ext')),ratePercent:rate,eligibleBase:amountPaid,amount,status:'pending',sourceType:String(req.body.sourceType||'kingdom_market'),sourceLabel:String(req.body.sourceLabel||'Kingdom Market'),earnedAt:now.toISOString(),payoutDate:nextMonthlyPayoutDate(now),paidAt:'',paymentReference:'',createdAt:now.toISOString()};
-  d.discipleCommissions.push(commission);createCommunityBonus(d,{commission,order:{id:commission.orderId,buyerEmail:String(req.body.buyerEmail||''),amountTotal:amountPaid,commissionEligible:true}},{id});writeStore(d); res.status(201).json({commission});
+  try{const d=readStore(),commission=creditDiscipleSale(d,{...req.body,discipleId:req.params.id,actorId:req.user.id},{id,createCommunityBonus});writeStore(d);res.status(201).json({commission});}
+  catch(error){res.status(error.statusCode||400).json({error:error.message});}
 });
+
+function sendDiscipleCsv(res,filename,csv){res.type('text/csv').set('Content-Disposition',`attachment; filename="${filename}"`).send(csv);}
+app.get('/api/disciples/export/applications.csv',auth,owner,(req,res)=>{const d=readStore();sendDiscipleCsv(res,'kvn-disciple-applications.csv',discipleApplicationsCsv(d.discipleApplications));});
+app.get('/api/disciples/export/disciples.csv',auth,owner,(req,res)=>{const d=readStore();sendDiscipleCsv(res,'kvn-disciples.csv',disciplesCsv(d.disciples));});
+app.get('/api/disciples/export/commissions.csv',auth,owner,(req,res)=>{const d=readStore();sendDiscipleCsv(res,'kvn-disciple-commissions.csv',discipleCommissionsCsv(d.discipleCommissions,d.disciples));});
+app.get('/api/disciples/export/payouts.csv',auth,owner,(req,res)=>{const d=readStore();sendDiscipleCsv(res,'kvn-disciple-payouts.csv',disciplePayoutsCsv(d.disciplePayouts,d.disciples));});
 app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const disc={id:id('disc'),eventId:e.id,code:String(req.body.code||'').toUpperCase().replace(/\s/g,''),type:req.body.type==='fixed'?'fixed':'percent',value:Math.max(0,Number(req.body.value)||0),active:true,maxUses:Math.max(1,Number(req.body.maxUses)||100),uses:0}; if(!disc.code) return res.status(400).json({error:'Code required.'}); d.discounts.push(disc); writeStore(d); res.status(201).json({discount:disc}); });
 
 app.post('/api/create-checkout-session', async (req,res)=>{
@@ -424,8 +463,8 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     const discipleCode=String(req.body.discipleCode||'').toUpperCase(),disciple=d.disciples.find(x=>x.code===discipleCode&&x.status==='active'),orderId=id('ord'); const total=subtotal-promoDiscountAmount+taxAmount+fees.buyerKvnFee+fees.buyerMerchantFee;
     if(!stripe)return res.status(503).json({error:'Stripe is not configured. Add STRIPE_SECRET_KEY to accept payments.',preview:{subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,taxAmount,fees,total,orderId}});
     const expiration=checkoutExpiration(),checkoutExpiresAt=expiration.iso,expiresAt=expiration.unix;
-    const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''}};
-    const org=d.organizations.find(o=>o.id===e.organizationId),discipleSplit=false; if(org?.stripeAccountId){sessionConfig.payment_intent_data={application_fee_amount:Math.max(0,fees.kvnFee),transfer_data:{destination:org.stripeAccountId}};}
+    const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''},payment_intent_data:{metadata:{order_id:orderId,order_type:'event'}}};
+    const org=d.organizations.find(o=>o.id===e.organizationId),discipleSplit=false; if(org?.stripeAccountId){sessionConfig.payment_intent_data={...sessionConfig.payment_intent_data,application_fee_amount:Math.max(0,fees.kvnFee),transfer_data:{destination:org.stripeAccountId}};}
     d.orders.push({id:orderId,eventId:e.id,organizationId:e.organizationId,stripeSessionId:'',buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',checkoutExpiresAt,tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);
     try{
       if(promoDiscountAmount>0){const coupon=await stripe.coupons.create({amount_off:promoDiscountAmount,currency:'usd',duration:'once',name:`${discountCode} discount`});if(coupon)sessionConfig.discounts=[{coupon:coupon.id}];}
@@ -454,6 +493,7 @@ async function finalizeSession(session){
     return o;
   }
   o.status='paid';
+  o.stripePaymentIntentId=typeof session.payment_intent==='string'?session.payment_intent:session.payment_intent?.id||'';
   o.buyerEmail=session.customer_details?.email||o.buyerEmail;
   o.buyerName=session.customer_details?.name||o.buyerName;
   o.paidAt=new Date().toISOString();
@@ -488,7 +528,7 @@ app.get('/api/checkout-session', async (req,res)=>{ try{ if(!stripe) return res.
 
 app.post('/api/checkin', auth, (req,res)=>{ if(!can(req.user,'checkin')) return res.status(403).json({error:'Check-in permission required.'}); const d=readStore(); const code=String(req.body.code||'').trim().toUpperCase(); for(const o of d.orders){ const t=o.tickets?.find(x=>x.code===code); if(t){ const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)) return res.status(403).json({error:'Ticket belongs to another organizer.'}); if(t.checkedIn) return res.status(409).json({error:'Already checked in.',ticket:t,event:e}); t.checkedIn=true;t.checkedInAt=new Date().toISOString();writeStore(d);return res.json({ok:true,ticket:t,event:e,buyerName:o.buyerName}); } } res.status(404).json({error:'Ticket not found.'}); });
 
-app.post('/api/orders/:id/refund', auth, async (req,res)=>{ const d=readStore(),o=d.orders.find(x=>x.id===req.params.id);if(!o)return res.status(404).json({error:'Order not found.'});const e=d.events.find(x=>x.id===o.eventId);if(!canManage(req.user,e))return res.status(403).json({error:'No access.'});if(!stripe)return res.status(503).json({error:'Stripe is not configured.'});const sess=await stripe.checkout.sessions.retrieve(o.stripeSessionId);if(!sess.payment_intent)return res.status(409).json({error:'No payment intent available.'});const f=e.feeSettings||{},fb=o.feeBreakdown||{};const refundable=Math.max(0,(o.amountTotal||0)-(f.refundKvnFees?0:(fb.buyerKvnFee||0))-(f.refundMerchantFees?0:(fb.buyerMerchantFee||0)));await stripe.refunds.create({payment_intent:sess.payment_intent,amount:refundable});o.status='refunded';o.refundAmount=refundable;o.refundedAt=new Date().toISOString();o.refundPolicyApplied={kvnFeesRefunded:Boolean(f.refundKvnFees),merchantFeesRefunded:Boolean(f.refundMerchantFees)};const com=d.discipleCommissions.find(c=>c.orderId===o.id);if(com){com.status='reversal_required';com.reversalNote='Order refunded. Reverse/offset this commission according to Stripe transfer state.';}writeStore(d);res.json({order:o}); });
+app.post('/api/orders/:id/refund', auth, async (req,res)=>{ const snapshot=readStore(),o=snapshot.orders.find(x=>x.id===req.params.id);if(!o)return res.status(404).json({error:'Order not found.'});const e=snapshot.events.find(x=>x.id===o.eventId);if(!canManage(req.user,e))return res.status(403).json({error:'No access.'});if(o.status==='refunded')return res.json({order:o});if(!stripe)return res.status(503).json({error:'Stripe is not configured.'});const sess=await stripe.checkout.sessions.retrieve(o.stripeSessionId);if(!sess.payment_intent)return res.status(409).json({error:'No payment intent available.'});const f=e.feeSettings||{},fb=o.feeBreakdown||{};const refundable=Math.max(0,(o.amountTotal||0)-(f.refundKvnFees?0:(fb.buyerKvnFee||0))-(f.refundMerchantFees?0:(fb.buyerMerchantFee||0)));await stripe.refunds.create({payment_intent:sess.payment_intent,amount:refundable},{idempotencyKey:`event-refund:${o.id}`});const latest=readStore(),current=latest.orders.find(x=>x.id===o.id);if(!current)return res.status(409).json({error:'Order changed while refunding. Stripe refund was submitted; review the order before retrying.'});if(current.status!=='refunded'){current.status='refunded';current.refundAmount=refundable;current.refundedAt=new Date().toISOString();current.refundPolicyApplied={kvnFeesRefunded:Boolean(f.refundKvnFees),merchantFeesRefunded:Boolean(f.refundMerchantFees)};flagOrderCommissionsForReversal(latest,{orderId:current.id,reason:'Order refunded. Reverse or recover this commission according to payout state.'},{id});writeStore(latest);}res.json({order:current}); });
 
 app.post('/api/organizations/:id/approve', auth, owner, (req,res)=>{ const d=readStore(); const org=d.organizations.find(o=>o.id===req.params.id); if(!org)return res.status(404).json({error:'Organization not found.'});org.status='approved';writeStore(d);res.json({organization:org}); });
 

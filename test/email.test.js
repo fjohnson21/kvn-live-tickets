@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTicketConfirmationDispatcher, deliverTicketConfirmation, sendOwnerPasswordReset, sendTicketConfirmation } from '../lib/email.js';
+import { createTicketConfirmationDispatcher, deliverTicketConfirmation, sendDiscipleApplicationNotice, sendDiscipleWelcome, sendOwnerPasswordReset, sendTicketConfirmation } from '../lib/email.js';
 
 const orderFixture = () => ({
   id: 'ord_123',
@@ -189,6 +189,31 @@ test('welcome email uses Kingdom Disciple branding and current attribution terms
   const content=buildDiscipleWelcome({disciple:{name:'Briannah'},link:'https://disciple.kvnlive.com/briannahcooper'});
   assert.match(content.subject,/Kingdom Disciple/);
   assert.match(content.text,/30-day attribution/i);
+});
+
+test('welcome email sends a stable provider idempotency key', async()=>{
+  let headers;
+  const result=await sendDiscipleWelcome({
+    disciple:{name:'Briannah',email:'briannah@example.com'},
+    link:'https://disciple.kvnlive.com/briannahcooper',
+    apiKey:'re_test',
+    idempotencyKey:'disciple-welcome:dsc_1:attempt_1',
+    fetchImpl:async(_url,options)=>{headers=options.headers;return {ok:true,status:200,json:async()=>({id:'email_once'})};}
+  });
+  assert.equal(result.status,'sent');
+  assert.equal(headers['Idempotency-Key'],'disciple-welcome:dsc_1:attempt_1');
+});
+
+test('application review notice includes the administrator reason and safe application link', async()=>{
+  let body;
+  const result=await sendDiscipleApplicationNotice({
+    application:{name:'Briannah Cooper',email:'briannah@example.com'},status:'needs_info',reason:'Please accept Agreement v2.2.',
+    applicationUrl:'https://kvnlive.com/disciples',apiKey:'re_test',idempotencyKey:'disciple-review:dapp_1:1',
+    fetchImpl:async(_url,options)=>{body=JSON.parse(options.body);return {ok:true,status:200,json:async()=>({id:'notice_1'})};}
+  });
+  assert.equal(result.status,'sent');
+  assert.match(body.text,/Please accept Agreement v2\.2/);
+  assert.match(body.text,/https:\/\/kvnlive\.com\/disciples/);
 });
 
 test('owner password reset email uses the configured provider endpoint and secure link', async () => {

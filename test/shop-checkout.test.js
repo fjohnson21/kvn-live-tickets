@@ -31,4 +31,5 @@ test('Stripe session requires shipping address and automatic tax',()=>{
   assert.match(config.cancel_url,/\/shop\?checkout=cancelled/);
   assert.equal(config.metadata.order_type,'apparel');
   assert.equal(config.metadata.order_id,'sho_1');
+  assert.equal(config.payment_intent_data.metadata.order_id,'sho_1');
 });
