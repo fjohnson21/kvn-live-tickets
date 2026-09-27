@@ -11,7 +11,7 @@ function offerEvent() {
 
 test('positions the event offer as a shirt purchase with Kingdom Vibe Live access', () => {
   const event = offerEvent();
-  const phrase = 'Your purchase includes access to Kingdom Vibe Live.';
+  const phrase = 'Your tee purchase grants you a complimentary Kingdom Vibe Live pass.';
 
   assert.match(event.description, /Get the official Drop 001/i);
   assert.match(event.description, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
