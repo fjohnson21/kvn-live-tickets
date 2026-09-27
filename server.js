@@ -1,3 +1,5 @@
+import { normalizePartnerCode } from './public/links-sales.js';
+import { bundleFulfillment, markBundleShipped, deliverFulfillmentMessage } from './lib/bundle-fulfillment.js';
 import 'dotenv/config';
 import express from 'express';
 import Stripe from 'stripe';
@@ -10,7 +12,7 @@ import { applyApparelConfig } from './lib/apparel.js';
 import { normalizeCustomer, validateCustomer } from './lib/customer.js';
 import { applyEarlyReleasePricing, checkoutExpiration, normalizeTicketCartItem, orderItemSubtotal, pendingEarlyReleaseUnits } from './lib/checkout.js';
 import { finalizeOrderItems } from './lib/finalize.js';
-import { eventReportCsv } from './lib/report.js';
+import { eventReportCsv, partnerOrdersCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
 import { createTicketConfirmationDispatcher, sendDiscipleApplicationNotice, sendDiscipleWelcome, sendOwnerPasswordReset } from './lib/email.js';
 import { createOwnerPasswordStore, createPasswordResetManager } from './lib/owner-auth.js';
@@ -245,7 +247,7 @@ app.get('/api/me', auth, (req,res)=>res.json({user:safeUser(req.user)}));
 app.post('/api/organizations/apply', (req,res)=>{ const d=readStore(); const name=String(req.body.name||'').trim(), email=String(req.body.email||'').trim(); if(!name||!email) return res.status(400).json({error:'Organization name and email are required.'}); const org={id:id('org'),name,slug:slugify(name),status:'pending',stripeAccountId:'',profile:{contactName:String(req.body.contactName||''),businessEmail:email,phone:String(req.body.phone||''),website:String(req.body.website||''),social:req.body.social||{},address:req.body.address||{},organizationType:String(req.body.organizationType||''),description:String(req.body.description||''),publicContact:Boolean(req.body.publicContact)},createdAt:new Date().toISOString()}; const user={id:id('usr'),name:req.body.contactName||name,email,role:'organizer',organizationId:org.id}; d.organizations.push(org); d.users.push(user); writeStore(d); res.status(201).json({organization:org,message:'Application submitted for KVN review.'}); });
 app.put('/api/organizations/:id/profile', auth, (req,res)=>{ const d=readStore(),org=d.organizations.find(x=>x.id===req.params.id); if(!org||!(req.user.role==='owner'||req.user.organizationId===org.id)) return res.status(403).json({error:'No access.'}); const b=req.body||{}; if(b.name) {org.name=String(b.name);org.slug=org.slug||slugify(org.name);} org.profile={...(org.profile||{}),contactName:String(b.contactName??org.profile?.contactName??''),businessEmail:String(b.businessEmail??org.profile?.businessEmail??''),phone:String(b.phone??org.profile?.phone??''),website:String(b.website??org.profile?.website??''),organizationType:String(b.organizationType??org.profile?.organizationType??''),description:String(b.description??org.profile?.description??''),publicContact:Boolean(b.publicContact),social:{...(org.profile?.social||{}),...(b.social||{})},address:{...(org.profile?.address||{}),...(b.address||{})}}; org.onboarding={...(org.onboarding||{}),profile:true}; writeStore(d);res.json({organization:org}); });
 
-app.get('/api/dashboard', auth, (req,res)=>{ const d=readStore(); const events=req.user.role==='owner'?d.events:d.events.filter(e=>e.organizationId===req.user.organizationId); const orders=req.user.role==='owner'?d.orders:d.orders.filter(o=>events.some(e=>e.id===o.eventId)); const organizations=req.user.role==='owner'?d.organizations:d.organizations.filter(o=>o.id===req.user.organizationId); const gross=orders.reduce((n,o)=>n+(o.amountTotal||0),0); res.json({user:safeUser(req.user),events,orders,organizations,discounts:d.discounts.filter(x=>req.user.role==='owner'||events.some(e=>e.id===x.eventId)),settings:d.settings,staff:d.users.filter(u=>u.role==='staff'&&(req.user.role==='owner'||u.organizationId===req.user.organizationId)),payouts:d.payouts.filter(p=>req.user.role==='owner'||organizations.some(o=>o.id===p.organizationId)),disciples:d.disciples.filter(x=>req.user.role==='owner'||x.organizationId===req.user.organizationId),discipleCommissions:d.discipleCommissions.filter(c=>req.user.role==='owner'||events.some(e=>e.id===c.eventId)),disciplePayouts:d.disciplePayouts.filter(p=>req.user.role==='owner'||d.disciples.some(x=>x.id===p.discipleId&&x.organizationId===req.user.organizationId)),discipleApplications:req.user.role==='owner'?d.discipleApplications:[],discipleTeams:req.user.role==='owner'?d.discipleTeams:[],discipleCommunityBonuses:req.user.role==='owner'?d.discipleCommunityBonuses:[],discipleBundleActions:req.user.role==='owner'?d.discipleBundleActions:[],communityBonusLegalApproved:process.env.COMMUNITY_BONUS_LEGAL_APPROVED==='true',metrics:{gross,orders:orders.length,tickets:orders.reduce((n,o)=>n+(o.tickets?.length||0),0),events:events.length}}); });
+app.get('/api/dashboard', auth, (req,res)=>{ const d=readStore(); const events=req.user.role==='owner'?d.events:d.events.filter(e=>e.organizationId===req.user.organizationId); const orders=req.user.role==='owner'?d.orders:d.orders.filter(o=>events.some(e=>e.id===o.eventId)); const organizations=req.user.role==='owner'?d.organizations:d.organizations.filter(o=>o.id===req.user.organizationId); const gross=orders.reduce((n,o)=>n+(o.amountTotal||0),0); res.json({user:safeUser(req.user),events,orders:orders.map(o=>({...o,bundleFulfillment:bundleFulfillment(o)})),organizations,discounts:d.discounts.filter(x=>req.user.role==='owner'||events.some(e=>e.id===x.eventId)),settings:d.settings,staff:d.users.filter(u=>u.role==='staff'&&(req.user.role==='owner'||u.organizationId===req.user.organizationId)),payouts:d.payouts.filter(p=>req.user.role==='owner'||organizations.some(o=>o.id===p.organizationId)),disciples:d.disciples.filter(x=>req.user.role==='owner'||x.organizationId===req.user.organizationId),discipleCommissions:d.discipleCommissions.filter(c=>req.user.role==='owner'||events.some(e=>e.id===c.eventId)),disciplePayouts:d.disciplePayouts.filter(p=>req.user.role==='owner'||d.disciples.some(x=>x.id===p.discipleId&&x.organizationId===req.user.organizationId)),discipleApplications:req.user.role==='owner'?d.discipleApplications:[],discipleTeams:req.user.role==='owner'?d.discipleTeams:[],discipleCommunityBonuses:req.user.role==='owner'?d.discipleCommunityBonuses:[],discipleBundleActions:req.user.role==='owner'?d.discipleBundleActions:[],communityBonusLegalApproved:process.env.COMMUNITY_BONUS_LEGAL_APPROVED==='true',metrics:{gross,orders:orders.length,tickets:orders.reduce((n,o)=>n+(o.tickets?.length||0),0),events:events.length}}); });
 app.get('/api/system-health',auth,owner,(req,res)=>{
   let storageProbe={ok:true,ownerAuthReady:false,persistentConfigured:Boolean(process.env.DATA_DIR)};
   const probeFile=path.join(runtimeDataDir,`.kvn-write-probe-${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
@@ -435,6 +437,7 @@ app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.eve
 app.post('/api/create-checkout-session', async (req,res)=>{
   try{
     const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId && x.status==='published'); if(!e) return res.status(404).json({error:'Event is not available for checkout.'});
+    let partnerCode;try{partnerCode=normalizePartnerCode(req.body.partnerCode);}catch(error){return res.status(400).json({error:error.message});}
     const customer=normalizeCustomer(req.body.customer),customerErrors=validateCustomer(customer);if(customerErrors.length)return res.status(400).json({error:customerErrors[0]});
     const cart=Array.isArray(req.body.cart)?req.body.cart:[]; if(!cart.length) return res.status(400).json({error:'Your cart is empty.'});
     let subtotal=0, groupDiscountAmount=0, earlyReleaseDiscountAmount=0; const normalized=[]; const lineItems=[];
@@ -463,9 +466,9 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     const discipleCode=String(req.body.discipleCode||'').toUpperCase(),disciple=d.disciples.find(x=>x.code===discipleCode&&x.status==='active'),orderId=id('ord'); const total=subtotal-promoDiscountAmount+taxAmount+fees.buyerKvnFee+fees.buyerMerchantFee;
     if(!stripe)return res.status(503).json({error:'Stripe is not configured. Add STRIPE_SECRET_KEY to accept payments.',preview:{subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,taxAmount,fees,total,orderId}});
     const expiration=checkoutExpiration(),checkoutExpiresAt=expiration.iso,expiresAt=expiration.unix;
-    const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''},payment_intent_data:{metadata:{order_id:orderId,order_type:'event'}}};
+    const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,partner_code:partnerCode,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''},payment_intent_data:{metadata:{order_id:orderId,order_type:'event',partner_code:partnerCode}}};
     const org=d.organizations.find(o=>o.id===e.organizationId),discipleSplit=false; if(org?.stripeAccountId){sessionConfig.payment_intent_data={...sessionConfig.payment_intent_data,application_fee_amount:Math.max(0,fees.kvnFee),transfer_data:{destination:org.stripeAccountId}};}
-    d.orders.push({id:orderId,eventId:e.id,organizationId:e.organizationId,stripeSessionId:'',buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',checkoutExpiresAt,tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);
+    d.orders.push({id:orderId,bundleWorkflowVersion:1,partnerCode,tags:partnerCode?['partner:chanel']:[],eventId:e.id,organizationId:e.organizationId,stripeSessionId:'',buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',checkoutExpiresAt,tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);
     try{
       if(promoDiscountAmount>0){const coupon=await stripe.coupons.create({amount_off:promoDiscountAmount,currency:'usd',duration:'once',name:`${discountCode} discount`});if(coupon)sessionConfig.discounts=[{coupon:coupon.id}];}
       const session=await stripe.checkout.sessions.create(sessionConfig),latest=readStore(),pending=latest.orders.find(x=>x.id===orderId);if(pending){pending.stripeSessionId=session.id;pending.checkoutExpiresAt=session.expires_at?new Date(session.expires_at*1000).toISOString():checkoutExpiresAt;writeStore(latest);}res.json({url:session.url});
@@ -480,7 +483,26 @@ async function sendConfirmation(order,event,{force=false}={}){
   return result;
 }
 
+const sessionFinalizations=new Map();
 async function finalizeSession(session){
+ if(session.payment_status!=='paid')return;
+ if(sessionFinalizations.has(session.id))return sessionFinalizations.get(session.id);
+ const operation=finalizePaidSession(session);sessionFinalizations.set(session.id,operation);
+ try{return await operation;}finally{sessionFinalizations.delete(session.id);}
+}
+async function notifyBundleStaff(order){
+ if(order.bundleWorkflowVersion!==1||!(order.tickets||[]).some(t=>t.apparel||t.includedApparel))return;
+ return deliverFulfillmentMessage({order,to:process.env.FULFILLMENT_EMAIL_TO||process.env.OWNER_EMAIL,apiKey:process.env.RESEND_API_KEY,from:process.env.EMAIL_FROM||'Kingdom Vibe Live <info@kvnlive.com>'});
+}
+function persistEmailResults(order,fields){
+ const latest=readStore(),current=latest.orders.find(x=>x.id===order.id);if(!current)return;
+ for(const key of fields)if(order[key]){
+  if(key==='confirmationEmailAttempts'){const attempts=[...(current[key]||[]),...order[key]];current[key]=[...new Map(attempts.map(a=>[JSON.stringify(a),a])).values()];}
+  else current[key]=order[key];
+ }
+ writeStore(latest);
+}
+async function finalizePaidSession(session){
   const d=readStore();
   const o=d.orders.find(x=>x.stripeSessionId===session.id);
   if(!o) return o;
@@ -488,10 +510,12 @@ async function finalizeSession(session){
   if(o.status==='paid'){
     if(o.confirmationEmail?.status!=='sent'){
       await sendConfirmation(o,e);
-      writeStore(d);
+      persistEmailResults(o,['confirmationEmail','confirmationEmailAttempts']);
     }
+    await notifyBundleStaff(o);persistEmailResults(o,['fulfillmentEmail']);
     return o;
   }
+  if(o.status==='refunded'||o.refundedAt)return o;
   o.status='paid';
   o.stripePaymentIntentId=typeof session.payment_intent==='string'?session.payment_intent:session.payment_intent?.id||'';
   o.buyerEmail=session.customer_details?.email||o.buyerEmail;
@@ -505,7 +529,9 @@ async function finalizeSession(session){
   }
   writeStore(d);
   await sendConfirmation(o,e);
-  writeStore(d);
+  persistEmailResults(o,['confirmationEmail','confirmationEmailAttempts']);
+  await notifyBundleStaff(o);
+  persistEmailResults(o,['fulfillmentEmail']);
   return o;
 }
 
@@ -527,6 +553,29 @@ app.get('/api/tickets/:code/qr.svg', async (req,res)=>{
 app.get('/api/checkout-session', async (req,res)=>{ try{ if(!stripe) return res.status(503).json({error:'Stripe not configured.'}); const session=await stripe.checkout.sessions.retrieve(req.query.session_id); let order;if(session.payment_status==='paid') order=await finalizeSession(session); else order=readStore().orders.find(x=>x.stripeSessionId===session.id); res.json({session:{id:session.id,payment_status:session.payment_status,amount_total:session.amount_total,customer_email:session.customer_details?.email},order}); }catch(e){ res.status(400).json({error:'Unable to load order.'}); } });
 
 app.post('/api/checkin', auth, (req,res)=>{ if(!can(req.user,'checkin')) return res.status(403).json({error:'Check-in permission required.'}); const d=readStore(); const code=String(req.body.code||'').trim().toUpperCase(); for(const o of d.orders){ const t=o.tickets?.find(x=>x.code===code); if(t){ const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)) return res.status(403).json({error:'Ticket belongs to another organizer.'}); if(t.checkedIn) return res.status(409).json({error:'Already checked in.',ticket:t,event:e}); t.checkedIn=true;t.checkedInAt=new Date().toISOString();writeStore(d);return res.json({ok:true,ticket:t,event:e,buyerName:o.buyerName}); } } res.status(404).json({error:'Ticket not found.'}); });
+
+
+app.get('/api/partner-orders.csv',auth,(req,res)=>{
+ if(!can(req.user,'orders'))return res.status(403).json({error:'No access.'});
+ const d=readStore(),events=d.events.filter(e=>canManage(req.user,e)),ids=new Set(events.map(e=>e.id));
+ let code;try{code=normalizePartnerCode(req.query.partner);}catch(error){return res.status(400).json({error:error.message});}
+ res.type('text/csv').set('Content-Disposition','attachment; filename="kvn-referral-orders.csv"').send(partnerOrdersCsv(d.orders.filter(o=>ids.has(o.eventId)),code));
+});
+
+app.post('/api/orders/:id/ship',auth,async(req,res)=>{
+ const d=readStore(),order=d.orders.find(o=>o.id===req.params.id);if(!order)return res.status(404).json({error:'Order not found.'});
+ const event=d.events.find(e=>e.id===order.eventId);if(!canManage(req.user,event)||!can(req.user,'orders'))return res.status(403).json({error:'No access.'});
+ try{markBundleShipped(order,req.body);}catch(error){return res.status(409).json({error:error.message});}
+ logAudit(d,req.user,'bundle.ship','order',order.id,{...order.bundleShipment});writeStore(d);
+ const shipmentEmail=await deliverFulfillmentMessage({order,kind:'shipping',to:order.buyerEmail,apiKey:process.env.RESEND_API_KEY,from:process.env.EMAIL_FROM||'Kingdom Vibe Live <info@kvnlive.com>'});
+ persistEmailResults(order,['shipmentEmail']);res.json({shipment:order.bundleShipment,shipmentEmail});
+});
+app.post('/api/orders/:id/fulfillment-notice',auth,async(req,res)=>{
+ const d=readStore(),order=d.orders.find(o=>o.id===req.params.id);if(!order)return res.status(404).json({error:'Order not found.'});
+ const event=d.events.find(e=>e.id===order.eventId);if(!canManage(req.user,event)||!can(req.user,'orders'))return res.status(403).json({error:'No access.'});
+ if(order.status!=='paid')return res.status(409).json({error:'Only paid orders can enter fulfillment.'});
+ await notifyBundleStaff(order);persistEmailResults(order,['fulfillmentEmail']);res.json({fulfillmentEmail:order.fulfillmentEmail});
+});
 
 app.post('/api/orders/:id/refund', auth, async (req,res)=>{ const snapshot=readStore(),o=snapshot.orders.find(x=>x.id===req.params.id);if(!o)return res.status(404).json({error:'Order not found.'});const e=snapshot.events.find(x=>x.id===o.eventId);if(!canManage(req.user,e))return res.status(403).json({error:'No access.'});if(o.status==='refunded')return res.json({order:o});if(!stripe)return res.status(503).json({error:'Stripe is not configured.'});const sess=await stripe.checkout.sessions.retrieve(o.stripeSessionId);if(!sess.payment_intent)return res.status(409).json({error:'No payment intent available.'});const f=e.feeSettings||{},fb=o.feeBreakdown||{};const refundable=Math.max(0,(o.amountTotal||0)-(f.refundKvnFees?0:(fb.buyerKvnFee||0))-(f.refundMerchantFees?0:(fb.buyerMerchantFee||0)));await stripe.refunds.create({payment_intent:sess.payment_intent,amount:refundable},{idempotencyKey:`event-refund:${o.id}`});const latest=readStore(),current=latest.orders.find(x=>x.id===o.id);if(!current)return res.status(409).json({error:'Order changed while refunding. Stripe refund was submitted; review the order before retrying.'});if(current.status!=='refunded'){current.status='refunded';current.refundAmount=refundable;current.refundedAt=new Date().toISOString();current.refundPolicyApplied={kvnFeesRefunded:Boolean(f.refundKvnFees),merchantFeesRefunded:Boolean(f.refundMerchantFees)};flagOrderCommissionsForReversal(latest,{orderId:current.id,reason:'Order refunded. Reverse or recover this commission according to payout state.'},{id});writeStore(latest);}res.json({order:current}); });
 
@@ -574,7 +623,7 @@ app.get('/api/events/:id/attendees.csv', auth, (req,res)=>{
 app.post('/api/tickets/:code/transfer', auth, (req,res)=>{
   const d=readStore(); const code=String(req.params.code).toUpperCase(); for(const o of d.orders){ const t=o.tickets?.find(x=>x.code===code); if(!t) continue; const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)||!can(req.user,'attendees')) return res.status(403).json({error:'No access.'}); t.holderName=String(req.body.name||t.holderName); t.holderEmail=String(req.body.email||''); t.transferredAt=new Date().toISOString(); logAudit(d,req.user,'ticket.transfer','ticket',t.id,{code,email:t.holderEmail}); writeStore(d); return res.json({ticket:t}); } res.status(404).json({error:'Ticket not found.'});
 });
-app.post('/api/orders/:id/resend', auth, async (req,res)=>{ const d=readStore(); const o=d.orders.find(x=>x.id===req.params.id); if(!o) return res.status(404).json({error:'Order not found.'}); const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)||!can(req.user,'orders')) return res.status(403).json({error:'No access.'}); const confirmationEmail=await sendConfirmation(o,e,{force:true}); logAudit(d,req.user,'order.resend','order',o.id,{emailStatus:confirmationEmail.status}); writeStore(d); res.status(confirmationEmail.status==='sent'?200:502).json({ok:confirmationEmail.status==='sent',confirmationEmail}); });
+app.post('/api/orders/:id/resend', auth, async (req,res)=>{ const d=readStore(); const o=d.orders.find(x=>x.id===req.params.id); if(!o) return res.status(404).json({error:'Order not found.'}); const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)||!can(req.user,'orders')) return res.status(403).json({error:'No access.'}); const confirmationEmail=await sendConfirmation(o,e,{force:true}); const latest=readStore();logAudit(latest,req.user,'order.resend','order',o.id,{emailStatus:confirmationEmail.status});writeStore(latest);persistEmailResults(o,['confirmationEmail','confirmationEmailAttempts']); res.status(confirmationEmail.status==='sent'?200:502).json({ok:confirmationEmail.status==='sent',confirmationEmail}); });
 
 app.post('/api/events/:id/custom-slug', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.params.id); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const slug=slugify(req.body.slug||''); if(slug.length<3) return res.status(400).json({error:'URL must be at least 3 characters.'}); if(d.events.some(x=>x.id!==e.id&&x.slug===slug)) return res.status(409).json({error:'That event URL is already taken.'}); const prior=e.slug; e.slug=slug;e.customSlug=slug;logAudit(d,req.user,'event.slug','event',e.id,{prior,slug});writeStore(d);res.json({event:e}); });
 
