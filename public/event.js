@@ -40,6 +40,7 @@ async function init() {
   });
   renderPage(); renderCart();
 }
+function isKvnBundle() { return event?.slug === 'kingdom-vibe-live-2026'; }
 function products(type) { return event.products.filter(product => product.type === type); }
 function productDescription(description) {
   const parts = String(description || '').split(' • ').filter(Boolean);
@@ -49,16 +50,16 @@ function renderProducts(type) {
   const list = products(type); if (!list.length) return '<p class="muted">No items available in this section.</p>';
   return `<div class="products">${list.map(product => {
     const config = apparelConfig(product);
-    const apparelCopy = product.type === 'ticket' && config.mode === 'included' ? `<p class="bundle-note">Includes ${esc(config.name)} — choose one size per pass.</p>` : product.type === 'ticket' && config.mode === 'optional' ? `<p class="bundle-note">Optional ${esc(config.name)}: ${money(config.price)} per pass.</p>` : '';
+    const apparelCopy = product.type === 'ticket' && config.mode === 'included' ? `<p class="bundle-note">${isKvnBundle() ? `Buy ${esc(config.name)} and receive one complimentary pass for this experience. Your purchase includes access to Kingdom Vibe Live.` : `Includes ${esc(config.name)}.`} Choose one shirt size per bundle.</p>` : product.type === 'ticket' && config.mode === 'optional' ? `<p class="bundle-note">Optional ${esc(config.name)}: ${money(config.price)} per pass.</p>` : '';
     const standaloneSize = product.options?.size ? `<select id="size-${product.id}">${product.options.size.map(size => `<option>${esc(size)}</option>`).join('')}</select>` : '<span></span>';
     const soldOut = Number(product.available || 0) <= 0, pricing = earlyReleasePriceSummary(product);
     const priceHtml = pricing.active ? `<div class="product-price"><span class="regular-price">${money(pricing.regularPrice)}</span> ${money(pricing.currentPrice)}</div><div class="early-release-note">${esc(pricing.label)} • Applied automatically</div>` : `<div class="product-price">${money(pricing.currentPrice)}</div>`;
-    return `<article class="product-card"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3>${productDescription(product.description)}<small class="availability">${esc(availabilityLabel(product))}</small>${apparelCopy}</div><div>${priceHtml}<div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<label class="quantity-control">Quantity<input type="number" id="qty-${product.id}" value="0" min="0" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}" inputmode="numeric" ${soldOut ? 'disabled' : ''}></label><button class="btn primary" id="select-${product.id}" onclick="add('${product.id}')" disabled>${soldOut ? 'Sold Out' : 'Select Pass'}</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
+    return `<article class="product-card"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3>${productDescription(product.description)}<small class="availability">${esc(availabilityLabel(product))}</small>${apparelCopy}</div><div>${priceHtml}<div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<label class="quantity-control">Quantity<input type="number" id="qty-${product.id}" value="0" min="0" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}" inputmode="numeric" ${soldOut ? 'disabled' : ''}></label><button class="btn primary" id="select-${product.id}" onclick="add('${product.id}')" disabled>${soldOut ? 'Sold Out' : isKvnBundle() ? 'Claim My Comp Pass' : 'Select Pass'}</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
   }).join('')}</div>`;
 }
 function renderPage() {
   const blocks = event.layout || [], heroStyle = event.media?.hero ? `style="background-image:linear-gradient(#0009,#000d),url('${event.media.hero}')"` : '';
-  page.innerHTML = `<section class="event-hero" ${heroStyle}><div class="shell"><span class="kicker">${esc(organization?.name || 'KVN PARTNER EVENT')}</span><h1>${esc(event.title)}</h1><p>${esc(event.description)}</p><div class="inline-actions"><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">Get Tickets</button><button class="btn" onclick="drawerOpen(true)">View Cart</button></div></div></section><div class="shell">${blocks.filter(block => block.type !== 'hero').map(blockHtml).join('')}</div>`;
+  page.innerHTML = `<section class="event-hero" ${heroStyle}><div class="shell"><span class="kicker">${esc(organization?.name || 'KVN PARTNER EVENT')}</span><h1>${esc(event.title)}</h1><p>${esc(event.description)}</p><div class="inline-actions"><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">${isKvnBundle() ? 'Claim My Comp Pass' : 'Get Tickets'}</button><button class="btn" onclick="drawerOpen(true)">View Cart</button></div></div></section><div class="shell">${blocks.filter(block => block.type !== 'hero').map(blockHtml).join('')}</div>`;
   for (const product of event.products) {
     const input = document.getElementById(`qty-${product.id}`);
     if (!input) continue;
@@ -67,11 +68,11 @@ function renderPage() {
   }
 }
 function blockHtml(block) {
-  if (block.type === 'tickets') return `<section class="layout-block" data-type="tickets"><span class="kicker">TICKETS</span><h2>${esc(block.title)}</h2><p class="muted">${esc(block.body)}</p>${renderProducts('ticket')}</section>`;
+  if (block.type === 'tickets') return `<section class="layout-block" data-type="tickets"><span class="kicker">${isKvnBundle() ? 'THE BUNDLE OFFER' : 'TICKETS'}</span><h2>${esc(block.title)}</h2><p class="muted">${esc(block.body)}</p>${isKvnBundle() ? `<div class="shirt-bundle-feature"><img src="https://kvnlive.com/assets/drop-001-front-back.png" alt="Front and back of the Not Self Made — Made By God T-shirt"><div><span class="kicker">WEAR YOUR FAITH</span><h2>NOT SELF MADE.<br>MADE BY GOD.</h2><p>Buy the official T-shirt bundle. Receive a complimentary Kingdom Vibe Live pass with your purchase.</p><p><strong>$29 — T-Shirt & Kingdom Pass</strong><br>Worship experience and reserved seating in Rows 19–35.</p><p><strong>$39 — T-Shirt & Full Access (Upgrade)</strong><br>Add the VIP Launch Party, Red Carpet and preferred seating in Rows 1–18.</p><p>Your purchase includes access to Kingdom Vibe Live. One shirt and one pass per bundle.</p></div></div>` : ''}${renderProducts('ticket')}</section>`;
   if (block.type === 'apparel') return `<section class="layout-block"><span class="kicker">APPAREL</span><h2>${esc(block.title)}</h2><p class="muted">${esc(block.body)}</p>${renderProducts('apparel')}</section>`;
   if (block.type === 'details') return `<section class="layout-block"><span class="kicker">EVENT DETAILS</span><h2>${esc(block.title)}</h2><p>${esc(block.body)}</p><p class="muted">${esc(event.venue)} • ${esc(event.location)}</p></section>`;
   if (block.type === 'image') return `<section class="layout-block visual-image-block ${esc(block.width || 'full')}"><h2>${esc(block.title)}</h2>${event.media?.hero ? `<img src="${event.media.hero}" alt="${esc(block.title)}">` : ''}<p class="muted">${esc(block.body)}</p></section>`;
-  if (block.type === 'cta') return `<section class="layout-block"><h2>${esc(block.title)}</h2><p>${esc(block.body)}</p><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">Get Tickets</button></section>`;
+  if (block.type === 'cta') return `<section class="layout-block"><h2>${esc(block.title)}</h2><p>${esc(block.body)}</p><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">${isKvnBundle() ? 'Claim My Comp Pass' : 'Get Tickets'}</button></section>`;
   return `<section class="layout-block"><h2>${esc(block.title)}</h2><p class="muted">${esc(block.body)}</p></section>`;
 }
 function renderPassEditor(productId) {
