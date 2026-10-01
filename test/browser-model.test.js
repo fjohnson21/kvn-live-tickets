@@ -76,7 +76,7 @@ test('storefront price summary shows automatic first-200 savings while available
     active: true,
     regularPrice: 5900,
     currentPrice: 4900,
-    label: '$10 off the first 200 passes'
+    label: 'Early price • Rises $10 after the first 200 bundles'
   });
 });
 

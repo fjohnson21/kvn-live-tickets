@@ -24,8 +24,8 @@ test('synchronizes the KVN Live event to the approved two-pass catalog', () => {
 
   assert.equal(event.date, '2026-11-21T14:30:00-05:00');
   assert.deepEqual(event.products.map(product => [product.id, product.name, product.price, product.inventory]), [
-    ['kv-all-access-2026', 'T-Shirt & Full Access (Upgrade)', 3900, 600],
-    ['kv-kingdom-pass-2026', 'T-Shirt & Kingdom Pass', 2900, 400]
+    ['kv-all-access-2026', 'T-Shirt & Full Access (Upgrade)', 4900, 600],
+    ['kv-kingdom-pass-2026', 'T-Shirt & Kingdom Pass', 3900, 400]
   ]);
   assert.match(event.products[0].description, /ROWS 1–18/);
   assert.match(event.products[1].description, /ROWS 19–35/);
@@ -34,8 +34,8 @@ test('synchronizes the KVN Live event to the approved two-pass catalog', () => {
   assert.ok(event.products.every(product => product.includedApparel.name.includes('Not Self Made')));
   assert.ok(event.products.every(product => product.includedApparel.sizes.includes('XXXXL')));
   assert.deepEqual(event.products.map(product => product.earlyRelease), [
-    { enabled: false, discountAmount: 0, unitLimit: 200 },
-    { enabled: false, discountAmount: 0, unitLimit: 200 }
+    { enabled: true, discountAmount: 1000, unitLimit: 200 },
+    { enabled: true, discountAmount: 1000, unitLimit: 200 }
   ]);
   assert.ok(event.layout.every(block => block.type !== 'apparel'));
   assert.match(event.layout.map(block => block.body).join(' '), /Acts 2:44/);
