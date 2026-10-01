@@ -1,6 +1,10 @@
 export function availabilityLabel(product = {}) {
   const available = Math.max(0, Number(product.available) || 0);
   if (available === 0) return 'Sold out';
+  if (product.earlyRelease?.enabled) {
+    const remaining = Math.min(available, Math.max(0, Number(product.earlyRelease.remaining) || 0));
+    return remaining > 0 ? `Limited early price • ${remaining} remaining at this price` : 'Early-price allocation filled • Standard pricing';
+  }
   if (available <= 10) return 'Early Release • Almost gone';
   return 'Early Release • Limited availability';
 }
@@ -18,6 +22,6 @@ export function earlyReleasePriceSummary(product = {}) {
     active,
     regularPrice,
     currentPrice: regularPrice - discountAmount,
-    label: active ? `$${(discountAmount / 100).toFixed(0)} off the first ${Math.max(0, Math.trunc(Number(config.unitLimit) || 0))} passes` : ''
+    label: active ? `Early price • Rises $${(discountAmount / 100).toFixed(0)} after the first ${Math.max(0, Math.trunc(Number(config.unitLimit) || 0))} bundles` : ''
   };
 }

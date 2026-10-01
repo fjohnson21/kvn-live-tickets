@@ -189,6 +189,12 @@ function nextMonthlyPayoutDate(date=new Date()){
   return new Date(Date.UTC(m===11?y+1:y,m===11?0:m+1,15)).toISOString().slice(0,10);
 }
 
+app.get('/api/early-pricing', (req,res)=>{
+ const d=readStore(),e=d.events.find(x=>x.slug==='kingdom-vibe-live-2026'&&x.status==='published');
+ res.set('Access-Control-Allow-Origin','*').set('Cache-Control','no-store');
+ if(!e)return res.status(404).json({error:'Event unavailable.'});
+ res.json({tiers:publicEvent(e,d.orders).products.filter(p=>p.type==='ticket').map(p=>({id:p.id,name:p.name,remaining:p.earlyRelease?.enabled?Math.min(p.available,Math.max(0,Number(p.earlyRelease.remaining)||0)):0}))});
+});
 app.get('/api/platform', (req,res)=>{ const d=readStore(); res.json({settings:d.settings, organizations:d.organizations.filter(o=>o.status==='approved').map(o=>({id:o.id,name:o.name,slug:o.slug})), events:d.events.filter(e=>e.status==='published').map(e=>publicEvent(e,d.orders))}); });
 app.get('/api/events/:slug', (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.slug===req.params.slug && x.status==='published'); if(!e) return res.status(404).json({error:'Event not found.'}); const org=d.organizations.find(o=>o.id===e.organizationId); res.json({event:publicEvent(e,d.orders),organization:org&&{id:org.id,name:org.name,slug:org.slug}}); });
 
@@ -442,7 +448,7 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     for(const item of cart){
       const p=e.products.find(x=>x.id===item.id); if(!p) continue;
       if(p.type==='ticket'){
-        let result;try{result=normalizeTicketCartItem(p,item);if(p.earlyRelease?.enabled)result=applyEarlyReleasePricing(result,p,pendingEarlyReleaseUnits(d.orders,e.id,p.id));}catch(err){if(err.statusCode)return res.status(err.statusCode).json({error:err.message});throw err;}
+        let result;try{result=normalizeTicketCartItem(p,item);if(p.earlyRelease?.enabled)result=applyEarlyReleasePricing(result,p,pendingEarlyReleaseUnits(d.orders,e.id,p.id)+normalized.filter(x=>x.productId===p.id).reduce((n,x)=>n+Number(x.earlyReleaseQuantity||0),0));}catch(err){if(err.statusCode)return res.status(err.statusCode).json({error:err.message});throw err;}
         subtotal+=result.item.ticketSubtotal+result.apparelSubtotal;groupDiscountAmount+=result.item.groupDiscountPerUnit*result.item.quantity;normalized.push(result.item);
         earlyReleaseDiscountAmount+=Number(result.item.earlyReleaseDiscountAmount||0);
         for(const ticketLine of result.ticketLineItems||[result.ticketLineItem])lineItems.push({quantity:ticketLine.quantity,price_data:{currency:'usd',unit_amount:ticketLine.unitAmount,product_data:{name:ticketLine.name,description:ticketLine.description}}});
