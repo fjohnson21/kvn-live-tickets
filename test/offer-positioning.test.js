@@ -27,7 +27,9 @@ test('uses fixed bundle prices with no automatic promotion', async () => {
   assert.deepEqual(event.products.map(product => product.price), [3900, 2900]);
   assert.ok(event.products.every(product => product.earlyRelease.enabled === false && product.earlyRelease.discountAmount === 0));
   assert.ok(event.products.every(product => product.earlyRelease.unitLimit === 200));
-  assert.match(source, /Claim My Comp Pass/);
+  assert.match(source, /Purchase Pass/);
+  assert.match(source, /Comp Ticket included/);
+  assert.doesNotMatch(source, /Claim My Comp Pass/);
   assert.match(source, /THE BUNDLE OFFER/);
   assert.match(source, /Applied automatically/);
   assert.doesNotMatch(source, />Get Tickets</);
