@@ -1,4 +1,3 @@
-import { normalizePartnerCode } from './public/links-sales.js';
 import { bundleFulfillment, markBundleShipped, deliverFulfillmentMessage } from './lib/bundle-fulfillment.js';
 import 'dotenv/config';
 import express from 'express';
@@ -12,7 +11,7 @@ import { applyApparelConfig } from './lib/apparel.js';
 import { normalizeCustomer, validateCustomer } from './lib/customer.js';
 import { applyEarlyReleasePricing, checkoutExpiration, normalizeTicketCartItem, orderItemSubtotal, pendingEarlyReleaseUnits } from './lib/checkout.js';
 import { finalizeOrderItems } from './lib/finalize.js';
-import { eventReportCsv, partnerOrdersCsv } from './lib/report.js';
+import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
 import { createTicketConfirmationDispatcher, sendDiscipleApplicationNotice, sendDiscipleWelcome, sendOwnerPasswordReset } from './lib/email.js';
 import { createOwnerPasswordStore, createPasswordResetManager } from './lib/owner-auth.js';
@@ -437,7 +436,6 @@ app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.eve
 app.post('/api/create-checkout-session', async (req,res)=>{
   try{
     const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId && x.status==='published'); if(!e) return res.status(404).json({error:'Event is not available for checkout.'});
-    let partnerCode;try{partnerCode=normalizePartnerCode(req.body.partnerCode);}catch(error){return res.status(400).json({error:error.message});}
     const customer=normalizeCustomer(req.body.customer),customerErrors=validateCustomer(customer);if(customerErrors.length)return res.status(400).json({error:customerErrors[0]});
     const cart=Array.isArray(req.body.cart)?req.body.cart:[]; if(!cart.length) return res.status(400).json({error:'Your cart is empty.'});
     let subtotal=0, groupDiscountAmount=0, earlyReleaseDiscountAmount=0; const normalized=[]; const lineItems=[];
@@ -466,9 +464,9 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     const discipleCode=String(req.body.discipleCode||'').toUpperCase(),disciple=d.disciples.find(x=>x.code===discipleCode&&x.status==='active'),orderId=id('ord'); const total=subtotal-promoDiscountAmount+taxAmount+fees.buyerKvnFee+fees.buyerMerchantFee;
     if(!stripe)return res.status(503).json({error:'Stripe is not configured. Add STRIPE_SECRET_KEY to accept payments.',preview:{subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,taxAmount,fees,total,orderId}});
     const expiration=checkoutExpiration(),checkoutExpiresAt=expiration.iso,expiresAt=expiration.unix;
-    const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,partner_code:partnerCode,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''},payment_intent_data:{metadata:{order_id:orderId,order_type:'event',partner_code:partnerCode}}};
+    const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''},payment_intent_data:{metadata:{order_id:orderId,order_type:'event'}}};
     const org=d.organizations.find(o=>o.id===e.organizationId),discipleSplit=false; if(org?.stripeAccountId){sessionConfig.payment_intent_data={...sessionConfig.payment_intent_data,application_fee_amount:Math.max(0,fees.kvnFee),transfer_data:{destination:org.stripeAccountId}};}
-    d.orders.push({id:orderId,bundleWorkflowVersion:1,partnerCode,tags:partnerCode?['partner:chanel']:[],eventId:e.id,organizationId:e.organizationId,stripeSessionId:'',buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',checkoutExpiresAt,tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);
+    d.orders.push({id:orderId,bundleWorkflowVersion:1,eventId:e.id,organizationId:e.organizationId,stripeSessionId:'',buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',checkoutExpiresAt,tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);
     try{
       if(promoDiscountAmount>0){const coupon=await stripe.coupons.create({amount_off:promoDiscountAmount,currency:'usd',duration:'once',name:`${discountCode} discount`});if(coupon)sessionConfig.discounts=[{coupon:coupon.id}];}
       const session=await stripe.checkout.sessions.create(sessionConfig),latest=readStore(),pending=latest.orders.find(x=>x.id===orderId);if(pending){pending.stripeSessionId=session.id;pending.checkoutExpiresAt=session.expires_at?new Date(session.expires_at*1000).toISOString():checkoutExpiresAt;writeStore(latest);}res.json({url:session.url});
@@ -555,12 +553,6 @@ app.get('/api/checkout-session', async (req,res)=>{ try{ if(!stripe) return res.
 app.post('/api/checkin', auth, (req,res)=>{ if(!can(req.user,'checkin')) return res.status(403).json({error:'Check-in permission required.'}); const d=readStore(); const code=String(req.body.code||'').trim().toUpperCase(); for(const o of d.orders){ const t=o.tickets?.find(x=>x.code===code); if(t){ const e=d.events.find(x=>x.id===o.eventId); if(!canManage(req.user,e)) return res.status(403).json({error:'Ticket belongs to another organizer.'}); if(t.checkedIn) return res.status(409).json({error:'Already checked in.',ticket:t,event:e}); t.checkedIn=true;t.checkedInAt=new Date().toISOString();writeStore(d);return res.json({ok:true,ticket:t,event:e,buyerName:o.buyerName}); } } res.status(404).json({error:'Ticket not found.'}); });
 
 
-app.get('/api/partner-orders.csv',auth,(req,res)=>{
- if(!can(req.user,'orders'))return res.status(403).json({error:'No access.'});
- const d=readStore(),events=d.events.filter(e=>canManage(req.user,e)),ids=new Set(events.map(e=>e.id));
- let code;try{code=normalizePartnerCode(req.query.partner);}catch(error){return res.status(400).json({error:error.message});}
- res.type('text/csv').set('Content-Disposition','attachment; filename="kvn-referral-orders.csv"').send(partnerOrdersCsv(d.orders.filter(o=>ids.has(o.eventId)),code));
-});
 
 app.post('/api/orders/:id/ship',auth,async(req,res)=>{
  const d=readStore(),order=d.orders.find(o=>o.id===req.params.id);if(!order)return res.status(404).json({error:'Order not found.'});
