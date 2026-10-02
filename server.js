@@ -334,8 +334,16 @@ app.post('/api/disciples/:id/welcome/resend',auth,owner,async(req,res)=>{
       id,persist:writeStore,reload:readStore,
       sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@kvnlive.com>'})
     });
-    res.status(result.welcomeEmail.status==='sent'?200:502).json({ok:result.welcomeEmail.status==='sent',...result});
-  }catch(error){res.status(error.statusCode||500).json({error:error.message||'Unable to resend welcome email.'});}
+    if(result.welcomeEmail.status==='sent'){
+      console.log('Disciple welcome email accepted',req.params.id,result.welcomeEmail.messageId||'');
+      return res.json({ok:true,...result});
+    }
+    console.error('Disciple welcome email failed',req.params.id,result.welcomeEmail.status,result.welcomeEmail.error||'Unknown delivery error');
+    return res.status(502).json({ok:false,error:result.welcomeEmail.error||'Welcome email delivery failed.',...result});
+  }catch(error){
+    console.error('Disciple welcome resend route failed',req.params.id,error.message||error);
+    res.status(error.statusCode||500).json({error:error.message||'Unable to resend welcome email.'});
+  }
 });
 app.post('/api/disciples/:id/status',auth,owner,(req,res)=>{
   try{
