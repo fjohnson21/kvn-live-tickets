@@ -7,18 +7,20 @@ const read = path => fs.readFileSync(new URL('../'+path, import.meta.url), 'utf8
 test('all built-in KVN sender addresses use the verified tickets.kvnlive.com domain', () => {
   const files = ['lib/email.js','lib/shop-email.js','lib/bundle-fulfillment.js','server.js'];
   const combined = files.map(read).join('\n');
-  const addresses = [...combined.matchAll(/<([^<>\\s]+@[^<>\\s]+)>/g)].map(m => m[1]);
-  const kvnSenders = addresses.filter(email => /@(?:tickets\\.)?kvnlive\\.com$/i.test(email));
+  const addresses = [...combined.matchAll(/<([^<>\s]+@[^<>\s]+)>/g)].map(m => m[1]);
+  const kvnSenders = addresses.filter(email => /@(?:tickets\.)?kvnlive\.com$/i.test(email));
   assert.ok(kvnSenders.length > 0, 'Expected KVN sender addresses to be present.');
-  for (const email of kvnSenders) assert.match(email, /@tickets\\.kvnlive\\.com$/i, 'Unverified sender default found: '+email);
+  for (const email of kvnSenders) {
+    assert.match(email, /@tickets\.kvnlive\.com$/i, 'Unverified sender default found: '+email);
+  }
 });
 
 function inlineHandlers(source) {
-  return [...source.matchAll(/onclick=[\"'`]([A-Za-z_$][\\w$]*)\\s*\\(/g)].map(m => m[1]);
+  return [...source.matchAll(/onclick=["'`]([A-Za-z_$][\w$]*)\s*\(/g)].map(m => m[1]);
 }
 function defined(source, name) {
-  const escaped = name.replace(/[.*+?^$()|[\\]\\\\]/g, '\\\\$&');
-  return new RegExp('(?:window\\\\.'+escaped+'\\\\s*=|function\\\\s+'+escaped+'\\\\s*\\\\(|(?:const|let|var)\\\\s+'+escaped+'\\\\s*=)').test(source);
+  const escaped = name.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
+  return new RegExp('(?:window\\.'+escaped+'\\s*=|function\\s+'+escaped+'\\s*\\(|(?:const|let|var)\\s+'+escaped+'\\s*=)').test(source);
 }
 
 test('inline dashboard and public button handlers resolve to defined functions', () => {
@@ -27,9 +29,11 @@ test('inline dashboard and public button handlers resolve to defined functions',
   for (const file of files) {
     const source = read(file);
     const handlers = [...new Set(inlineHandlers(source))];
-    for (const handler of handlers) if (!defined(source, handler)) failures.push(file+': '+handler);
+    for (const handler of handlers) {
+      if (!defined(source, handler)) failures.push(file+': '+handler);
+    }
   }
-  assert.deepEqual(failures, [], 'Undefined inline button handlers:\\n'+failures.join('\\n'));
+  assert.deepEqual(failures, [], 'Undefined inline button handlers:\n'+failures.join('\n'));
 });
 
 test('critical transactional email workflows have explicit failure-state handling', () => {
