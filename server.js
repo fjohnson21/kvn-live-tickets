@@ -15,7 +15,7 @@ import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
 import { createTicketConfirmationDispatcher, sendDiscipleApplicationNotice, sendDiscipleWelcome, sendOwnerPasswordReset } from './lib/email.js';
 import { createOwnerPasswordStore, createPasswordResetManager } from './lib/owner-auth.js';
-import { upsertDiscipleFromApplication } from './lib/disciple-sync.js';
+import { upsertDiscipleFromApplication, allocateDiscipleHandle, affiliatePublicUrl } from './lib/disciple-sync.js';
 import { receiveDiscipleApplication } from './lib/disciple-intake.js';
 import { approveDiscipleApplication, resendDiscipleWelcome, reviewDiscipleApplication, setDiscipleActiveStatus } from './lib/disciple-operations.js';
 import { buildSystemHealth } from './lib/system-health.js';
@@ -39,6 +39,7 @@ const app = express();
 app.set('trust proxy', true);
 const port = process.env.PORT || 3000;
 const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
+const affiliateBaseUrl = process.env.AFFILIATE_PUBLIC_BASE_URL || `${baseUrl.replace(/\/$/,'')}/affiliate`;
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -321,7 +322,7 @@ app.post('/api/disciple-applications/:id/status',auth,owner,async(req,res)=>{
   }
   try{
     const result=await approveDiscipleApplication(d,{applicationId:a.id,actor:req.user},{
-      id,persist:writeStore,reload:readStore,
+      id,persist:writeStore,reload:readStore,affiliateBaseUrl,
       sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@tickets.kvnlive.com>'})
     });
     res.json({ok:true,...result});
@@ -331,7 +332,7 @@ app.post('/api/disciples/:id/welcome/resend',auth,owner,async(req,res)=>{
   try{
     const d=readStore();
     const result=await resendDiscipleWelcome(d,{discipleId:req.params.id,actor:req.user},{
-      id,persist:writeStore,reload:readStore,
+      id,persist:writeStore,reload:readStore,affiliateBaseUrl,
       sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@tickets.kvnlive.com>'})
     });
     if(result.welcomeEmail.status==='sent'){
@@ -366,11 +367,11 @@ app.post('/api/integrations/disciples/approve', async (req,res)=>{
     const d=readStore();
     const result=upsertDiscipleFromApplication(d,req.body,{id});
     let disciple=result.disciple;
-    let trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(disciple.handle),welcomeEmail=disciple.welcomeEmail||null;
+    let trackingUrl=affiliatePublicUrl(disciple.handle,affiliateBaseUrl),welcomeEmail=disciple.welcomeEmail||null;
     writeStore(d);
     if(result.created||req.body.resendWelcome===true){
       const delivered=await resendDiscipleWelcome(d,{discipleId:disciple.id,actor:{id:'system',name:'KVN Site sync'}},{
-        id,persist:writeStore,reload:readStore,
+        id,persist:writeStore,reload:readStore,affiliateBaseUrl,
         sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@tickets.kvnlive.com>'})
       });
       disciple=delivered.disciple;welcomeEmail=delivered.welcomeEmail;
@@ -386,12 +387,11 @@ app.post('/api/disciples', auth, owner, async (req,res)=>{
   const code=String(req.body.code||req.body.name||'DISCIPLE').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,24);
   if(!code) return res.status(400).json({error:'Disciple code required.'});
   if(d.disciples.some(x=>x.code===code)) return res.status(409).json({error:'That Disciple code already exists.'});
-  const handle=slugify(req.body.handle||req.body.name||code).replace(/-/g,'').slice(0,40);
+  const handle=allocateDiscipleHandle(d,req.body.handle||req.body.name||code);
   if(!handle) return res.status(400).json({error:'Disciple handle required.'});
-  if(d.disciples.some(x=>String(x.handle||'').toLowerCase()===handle.toLowerCase())) return res.status(409).json({error:'That Disciple link is already taken.'});
   const disciple={id:id('dsc'),name:String(req.body.name||'Disciple'),email:String(req.body.email||''),code,handle,status:'active',organizationId:orgId,defaultCommissionPercent:Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent ?? d.settings.defaultDiscipleCommissionPercent ?? 10))),eventRates:[],payoutMethod:String(req.body.payoutMethod||'manual'),payoutNotes:String(req.body.payoutNotes||''),createdAt:new Date().toISOString()};
   d.disciples.push(disciple); writeStore(d);
-  const trackingUrl='https://disciple.kvnlive.com/'+encodeURIComponent(handle);
+  const trackingUrl=affiliatePublicUrl(handle,affiliateBaseUrl);
   const delivered=await resendDiscipleWelcome(d,{discipleId:disciple.id,actor:req.user},{id,persist:writeStore,reload:readStore,sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@tickets.kvnlive.com>'})});
   res.status(201).json({disciple:delivered.disciple,trackingUrl,welcomeEmail:delivered.welcomeEmail});
 });
@@ -411,6 +411,7 @@ function discipleRedirect(req,res,handle){
   if(!event)return res.redirect(302,'https://kvnlive.com/?disciple='+encodeURIComponent(x.code));
   return res.redirect(302,'/event.html?slug='+encodeURIComponent(event.slug)+'&disciple='+encodeURIComponent(x.code));
 }
+app.get('/affiliate/:handle',(req,res)=>discipleRedirect(req,res,req.params.handle));
 app.get('/disciple/:handle',(req,res)=>discipleRedirect(req,res,req.params.handle));
 app.get('/:handle',(req,res,next)=>{ const host=String(req.headers.host||'').split(':')[0].toLowerCase(); if(host!=='disciple.kvnlive.com')return next(); return discipleRedirect(req,res,req.params.handle); });
 app.post('/api/disciple-commissions/:id/mark-paid', auth, owner, (req,res)=>{

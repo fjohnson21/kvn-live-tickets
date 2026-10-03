@@ -49,7 +49,7 @@ test('approval persists one active Disciple before a failed welcome attempt', as
   assert.equal(snapshots[0].disciples[0].welcomeEmail, undefined);
   assert.equal(store.disciples.length, 1);
   assert.equal(result.disciple.status, 'active');
-  assert.equal(result.trackingUrl, 'https://disciple.kvnlive.com/briannahcooper');
+  assert.equal(result.trackingUrl, 'https://www.kvnlive.com/affiliate/briannahcooper');
   assert.equal(result.welcomeEmail.status, 'failed');
   assert.equal(result.disciple.welcomeEmailAttempts.length, 1);
   assert.equal(store.auditLogs[0].action, 'disciple.welcome_failed');

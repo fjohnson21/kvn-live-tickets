@@ -41,3 +41,10 @@ test('application sync accepts complete legal-name fields from v2.2 intake',()=>
   assert.equal(disciple.name,'Briannah Cooper');
   assert.equal(disciple.sourceAgreementVersion,'2.2');
 });
+
+
+test('duplicate names receive stable numbered affiliate handles',()=>{
+  const store={settings:{defaultDiscipleCommissionPercent:10},disciples:[{id:'d1',handle:'briannahcooper'}]};
+  const {disciple}=upsertDiscipleFromApplication(store,{applicationReference:'KVN-D-DUP',name:'Briannah Cooper',email:'second@example.com'},{id:()=> 'd2'});
+  assert.equal(disciple.handle,'briannahcooper2');
+});
