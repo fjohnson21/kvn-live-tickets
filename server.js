@@ -13,7 +13,7 @@ import { applyEarlyReleasePricing, checkoutExpiration, normalizeTicketCartItem, 
 import { finalizeOrderItems } from './lib/finalize.js';
 import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
-import { createTicketConfirmationDispatcher, sendDiscipleApplicationNotice, sendDiscipleWelcome, sendOwnerPasswordReset } from './lib/email.js';
+import { createTicketConfirmationDispatcher, sendDiscipleApplicationNotice, sendDiscipleWelcome, sendOwnerPasswordReset, sendDonationReceipt } from './lib/email.js';
 import { createOwnerPasswordStore, createPasswordResetManager } from './lib/owner-auth.js';
 import { upsertDiscipleFromApplication, allocateDiscipleHandle, affiliatePublicUrl, changeDiscipleHandle } from './lib/disciple-sync.js';
 import { receiveDiscipleApplication } from './lib/disciple-intake.js';
@@ -76,7 +76,7 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
     const event=stripe.webhooks.constructEvent(req.body,sig,process.env.STRIPE_WEBHOOK_SECRET);
     if(event.type==='checkout.session.completed' && event.data.object.payment_status==='paid'){
       if(event.data.object.metadata?.order_type==='donation'){
-        finalizeDonationSession(event.data.object);
+        await finalizeDonationSession(event.data.object);
       } else if(event.data.object.metadata?.order_type==='apparel'){
         const d=readStore();await finalizeShopSession(d,event.data.object,{id,queueConfirmation:order=>deliverShopConfirmation({order,apiKey:process.env.RESEND_API_KEY,from:process.env.SHOP_EMAIL_FROM||'Kingdom Vibe Shop <shop@tickets.kvnlive.com>'})});writeStore(d);
       } else await finalizeSession(event.data.object);
@@ -100,7 +100,7 @@ app.get('/api/shop/catalog',(req,res)=>{
   res.set('Cache-Control','public, max-age=60').json(publicShopCatalog(readStore()));
 });
 
-function finalizeDonationSession(session){
+async function finalizeDonationSession(session){
   const d=readStore();
   const donation=d.donations.find(item=>item.id===String(session.metadata?.donation_id||'')||item.stripeSessionId===session.id);
   if(!donation)return null;
@@ -111,6 +111,11 @@ function finalizeDonationSession(session){
     donation.amountTotal=Number(session.amount_total||donation.amount||0);
     donation.updatedAt=donation.paidAt;
     writeStore(d);
+  }
+  if(session.payment_status==='paid'&&donation.email&&donation.receiptEmail?.status!=='sent'){
+    const receipt=await sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Acts 2:44 Foundation <info@tickets.kvnlive.com>'});
+    const latest=readStore(),current=latest.donations.find(item=>item.id===donation.id);
+    if(current){current.receiptEmail=receipt;current.updatedAt=new Date().toISOString();writeStore(latest);return current;}
   }
   return donation;
 }
@@ -150,7 +155,7 @@ app.get('/api/donations/session',async(req,res)=>{
     const sessionId=String(req.query.session_id||'').trim();
     if(!sessionId)return res.status(400).json({error:'Missing checkout session.'});
     const session=await stripe.checkout.sessions.retrieve(sessionId);
-    const donation=finalizeDonationSession(session);
+    const donation=await finalizeDonationSession(session);
     if(!donation)return res.status(404).json({error:'Contribution record not found.'});
     res.set('Cache-Control','no-store').json({paymentStatus:session.payment_status,donation:{id:donation.id,program:donation.program,amount:donation.amountTotal||donation.amount,status:donation.status}});
   }catch(error){res.status(400).json({error:'Unable to verify contribution.'});}
