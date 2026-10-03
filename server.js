@@ -405,12 +405,20 @@ app.post('/api/disciples/:id/event-rate', auth, owner, (req,res)=>{
   const percent=Math.max(0,Math.min(100,Number(req.body.percent)||0)); x.eventRates ||= []; const prior=x.eventRates.find(v=>v.eventId===e.id); if(prior)prior.percent=percent;else x.eventRates.push({eventId:e.id,percent}); writeStore(d);res.json({disciple:x});
 });
 app.get('/api/disciples/:code/resolve',(req,res)=>{ const d=readStore(),x=d.disciples.find(v=>v.code===String(req.params.code||'').toUpperCase()&&v.status==='active'); if(!x)return res.status(404).json({error:'Disciple not found.'}); res.json({disciple:{id:x.id,name:x.name,code:x.code,handle:x.handle||''}}); });
+function activeAffiliate(store,handle,code){
+  return store.disciples.find(x=>x.status==='active'&&(code?x.code===String(code).toUpperCase():[x.handle,...(x.handleAliases||[])].some(h=>String(h||'').toLowerCase()===String(handle||'').toLowerCase())));
+}
+function publicAffiliate(req,res,handle,code){
+  res.set('Cache-Control','no-store');const x=activeAffiliate(readStore(),handle,code);
+  if(!x)return res.status(404).json({error:'Disciple link not found.'});
+  return res.json({handle:x.handle,code:x.code});
+}
+app.get('/api/affiliates/:handle',(req,res)=>publicAffiliate(req,res,req.params.handle));
+app.get('/api/affiliates',(req,res)=>{if(!/^[A-Z0-9]{1,40}$/i.test(String(req.query.code||'')))return res.status(400).json({error:'Invalid referral code.'});return publicAffiliate(req,res,'',req.query.code);});
 function discipleRedirect(req,res,handle){
-  const d=readStore(),x=d.disciples.find(v=>[v.handle,...(v.handleAliases||[])].some(h=>String(h||'').toLowerCase()===String(handle||'').toLowerCase())&&v.status==='active');
+  const x=activeAffiliate(readStore(),handle);res.set('Cache-Control','no-store');
   if(!x)return res.status(404).send('Disciple link not found.');
-  const event=d.events.find(e=>e.status==='published'&&String(e.slug||'').includes('kingdom-vibe-live'))||d.events.find(e=>e.status==='published');
-  if(!event)return res.redirect(302,'https://kvnlive.com/?disciple='+encodeURIComponent(x.code));
-  return res.redirect(302,'/event.html?slug='+encodeURIComponent(event.slug)+'&disciple='+encodeURIComponent(x.code));
+  return res.redirect(302,'https://kvnlive.com/affiliate/'+encodeURIComponent(x.handle));
 }
 app.get('/affiliate/:handle',(req,res)=>discipleRedirect(req,res,req.params.handle));
 app.get('/disciple/:handle',(req,res)=>discipleRedirect(req,res,req.params.handle));
