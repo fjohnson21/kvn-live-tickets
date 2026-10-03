@@ -95,6 +95,8 @@ app.use(express.static('public'));
 const uploadDir = process.env.UPLOAD_DIR || path.resolve('public/uploads');
 requireDir(uploadDir);
 app.use('/uploads', express.static(uploadDir));
+app.get('/engine-preview',(req,res)=>res.sendFile(path.resolve('public/engine-preview.html')));
+app.get('/links-preview',(req,res)=>res.sendFile(path.resolve('public/links-preview.html')));
 
 app.get('/api/shop/catalog',(req,res)=>{
   res.set('Cache-Control','public, max-age=60').json(publicShopCatalog(readStore()));
