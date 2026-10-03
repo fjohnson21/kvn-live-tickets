@@ -75,7 +75,9 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
     const sig=req.headers['stripe-signature'];
     const event=stripe.webhooks.constructEvent(req.body,sig,process.env.STRIPE_WEBHOOK_SECRET);
     if(event.type==='checkout.session.completed' && event.data.object.payment_status==='paid'){
-      if(event.data.object.metadata?.order_type==='apparel'){
+      if(event.data.object.metadata?.order_type==='donation'){
+        finalizeDonationSession(event.data.object);
+      } else if(event.data.object.metadata?.order_type==='apparel'){
         const d=readStore();await finalizeShopSession(d,event.data.object,{id,queueConfirmation:order=>deliverShopConfirmation({order,apiKey:process.env.RESEND_API_KEY,from:process.env.SHOP_EMAIL_FROM||'Kingdom Vibe Shop <shop@tickets.kvnlive.com>'})});writeStore(d);
       } else await finalizeSession(event.data.object);
     }
@@ -96,6 +98,62 @@ app.use('/uploads', express.static(uploadDir));
 
 app.get('/api/shop/catalog',(req,res)=>{
   res.set('Cache-Control','public, max-age=60').json(publicShopCatalog(readStore()));
+});
+
+function finalizeDonationSession(session){
+  const d=readStore();
+  const donation=d.donations.find(item=>item.id===String(session.metadata?.donation_id||'')||item.stripeSessionId===session.id);
+  if(!donation)return null;
+  if(session.payment_status==='paid'&&donation.status!=='paid'){
+    donation.status='paid';
+    donation.paidAt=new Date().toISOString();
+    donation.stripePaymentIntentId=typeof session.payment_intent==='string'?session.payment_intent:session.payment_intent?.id||'';
+    donation.amountTotal=Number(session.amount_total||donation.amount||0);
+    donation.updatedAt=donation.paidAt;
+    writeStore(d);
+  }
+  return donation;
+}
+
+app.post('/api/donations/checkout',async(req,res)=>{
+  try{
+    const amount=Math.round(Number(req.body.amount)||0);
+    const email=String(req.body.email||'').trim().toLowerCase();
+    const name=String(req.body.name||'').trim();
+    if(!Number.isInteger(amount)||amount<500||amount>1000000)return res.status(400).json({error:'Enter a contribution amount between $5 and $10,000.'});
+    if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:'Enter a valid email address.'});
+    if(!stripe)return res.status(503).json({error:'Acts 2:44 contributions are temporarily unavailable.'});
+    const d=readStore(),donation={id:id('don'),program:'acts-2-44',amount,status:'pending',name,email,stripeSessionId:'',createdAt:new Date().toISOString()};
+    d.donations.push(donation);writeStore(d);
+    const config={
+      mode:'payment',
+      line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:amount,product_data:{name:'Acts 2:44 Community Support',description:'Support Kingdom Vibe Acts 2:44 community impact initiatives.'}}}],
+      success_url:`${baseUrl}/donation-success.html?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:`${baseUrl}/donate.html?cancelled=1`,
+      metadata:{order_type:'donation',donation_id:donation.id,program:'acts-2-44'},
+      payment_intent_data:{metadata:{order_type:'donation',donation_id:donation.id,program:'acts-2-44'}},
+      ...(email?{customer_email:email}:{})
+    };
+    const session=await stripe.checkout.sessions.create(config);
+    const latest=readStore(),current=latest.donations.find(item=>item.id===donation.id);
+    if(current){current.stripeSessionId=session.id;current.updatedAt=new Date().toISOString();writeStore(latest);}
+    res.status(201).json({url:session.url,donationId:donation.id});
+  }catch(error){
+    console.error('Donation checkout error',error);
+    res.status(500).json({error:'Unable to start Acts 2:44 contribution checkout.'});
+  }
+});
+
+app.get('/api/donations/session',async(req,res)=>{
+  try{
+    if(!stripe)return res.status(503).json({error:'Payment verification is unavailable.'});
+    const sessionId=String(req.query.session_id||'').trim();
+    if(!sessionId)return res.status(400).json({error:'Missing checkout session.'});
+    const session=await stripe.checkout.sessions.retrieve(sessionId);
+    const donation=finalizeDonationSession(session);
+    if(!donation)return res.status(404).json({error:'Contribution record not found.'});
+    res.set('Cache-Control','no-store').json({paymentStatus:session.payment_status,donation:{id:donation.id,program:donation.program,amount:donation.amountTotal||donation.amount,status:donation.status}});
+  }catch(error){res.status(400).json({error:'Unable to verify contribution.'});}
 });
 
 app.post('/api/shop/checkout',async(req,res)=>{
