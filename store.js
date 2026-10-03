@@ -19,7 +19,7 @@ export function ensureDiscipleProgramCollections(store){
 }
 export function readStore(){
   const d=ensureDiscipleProgramCollections(JSON.parse(fs.readFileSync(file,'utf8')));
-  d.users ||= []; d.organizations ||= []; d.events ||= []; d.orders ||= []; d.discounts ||= [];
+  d.users ||= []; d.organizations ||= []; d.events ||= []; d.orders ||= []; d.discounts ||= []; d.donations ||= [];
   d.staff ||= []; d.payouts ||= []; d.auditLogs ||= []; d.abandonedCarts ||= []; d.media ||= []; d.disciples ||= []; d.discipleApplications ||= []; d.discipleCommissions ||= []; d.disciplePayouts ||= [];
   d.settings ||= {}; d.settings.platformFeePercent ??= 5; d.settings.taxRatePercent ??= 0; d.settings.discipleCookieDays ??= 30; d.settings.defaultDiscipleCommissionPercent ??= 10; d.settings.disciplePayoutDay ??= 15; d.settings.discipleMinimumPayout ??= 0; d.settings.disciplePayoutMode ||= 'manual';
   if(d.settings.discipleProgramVersion!=='2.2'){
