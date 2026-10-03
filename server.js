@@ -127,18 +127,20 @@ app.post('/api/donations/checkout',async(req,res)=>{
     const amount=Math.round(Number(req.body.amount)||0);
     const email=String(req.body.email||'').trim().toLowerCase();
     const name=String(req.body.name||'').trim();
-    if(!Number.isInteger(amount)||amount<500||amount>1000000)return res.status(400).json({error:'Enter a contribution amount between $5 and $10,000.'});
+    if(!Number.isInteger(amount)||amount<200||amount>1000000)return res.status(400).json({error:'Enter a contribution amount between $2 and $10,000.'});
     if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:'Enter a valid email address.'});
     if(!stripe)return res.status(503).json({error:'Acts 2:44 contributions are temporarily unavailable.'});
-    const d=readStore(),donation={id:id('don'),program:'acts-2-44',amount,status:'pending',name,email,stripeSessionId:'',createdAt:new Date().toISOString()};
+    const campaign=req.body.campaign==='grocery-initiative'?'grocery-initiative':'general';
+    const designation=campaign==='grocery-initiative'?'Grocery initiative: groceries, procurement and distribution costs':'Acts 2:44 community impact initiatives';
+    const d=readStore(),donation={id:id('don'),program:'acts-2-44',campaign,designation,amount,status:'pending',name,email,stripeSessionId:'',createdAt:new Date().toISOString()};
     d.donations.push(donation);writeStore(d);
     const config={
       mode:'payment',
-      line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:amount,product_data:{name:'Acts 2:44 Community Support',description:'Support Kingdom Vibe Acts 2:44 community impact initiatives.'}}}],
+      line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:amount,product_data:{name:campaign==='grocery-initiative'?'Acts 2:44 Grocery Initiative':'Acts 2:44 Community Support',description:designation}}}],
       success_url:`${baseUrl}/donation-success.html?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url:`${baseUrl}/donate.html?cancelled=1`,
-      metadata:{order_type:'donation',donation_id:donation.id,program:'acts-2-44'},
-      payment_intent_data:{metadata:{order_type:'donation',donation_id:donation.id,program:'acts-2-44'}},
+      cancel_url:`${baseUrl}/donate.html?cancelled=1&campaign=${campaign}`,
+      metadata:{order_type:'donation',donation_id:donation.id,program:'acts-2-44',campaign},
+      payment_intent_data:{metadata:{order_type:'donation',donation_id:donation.id,program:'acts-2-44',campaign}},
       ...(email?{customer_email:email}:{})
     };
     const session=await stripe.checkout.sessions.create(config);
