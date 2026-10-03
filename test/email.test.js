@@ -235,3 +235,19 @@ test('owner password reset email uses the configured provider endpoint and secur
   assert.match(request.body.text, /expires in 15 minutes/i);
   assert.match(request.body.text, /reset-password\.html\?token=secret/);
 });
+
+
+test('Acts 2:44 receipt identifies the nonprofit and no-goods statement',async()=>{
+  const {sendDonationReceipt}=await import('../lib/email.js');
+  let sent;
+  const result=await sendDonationReceipt({
+    donation:{id:'don_test',name:'Test Donor',email:'donor@example.com',amount:5000,amountTotal:5000,paidAt:'2026-10-03T18:00:00.000Z'},
+    apiKey:'test',
+    fetchImpl:async(url,options)=>{sent=JSON.parse(options.body);return {ok:true,json:async()=>({id:'receipt_test'})}}
+  });
+  assert.equal(result.status,'sent');
+  assert.match(sent.text,/Kingdom Vibe Inc\. d\/b\/a Acts 2:44 Foundation/);
+  assert.match(sent.text,/No goods or services were provided in exchange/);
+  assert.match(sent.text,/\$50\.00/);
+  assert.match(sent.text,/501\(c\)\(3\)/);
+});
