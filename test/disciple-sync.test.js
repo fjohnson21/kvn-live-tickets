@@ -48,3 +48,16 @@ test('duplicate names receive stable numbered affiliate handles',()=>{
   const {disciple}=upsertDiscipleFromApplication(store,{applicationReference:'KVN-D-DUP',name:'Briannah Cooper',email:'second@example.com'},{id:()=> 'd2'});
   assert.equal(disciple.handle,'briannahcooper2');
 });
+
+test('owner handle correction preserves identity and reserves old aliases',async()=>{
+ const { changeDiscipleHandle, allocateDiscipleHandle }=await import('../lib/disciple-sync.js');
+ const d={id:'d1',name:'Briannah Cooper',handle:'oldpreferredname',code:'KEEP',status:'active'};
+ const store={disciples:[d,{id:'d2',handle:'taken',handleAliases:['reserved']}],orders:[{id:'keep'}]};
+ assert.throws(()=>changeDiscipleHandle(store,d,'taken'),/already/);
+ assert.throws(()=>changeDiscipleHandle(store,d,'reserved'),/already/);
+ assert.throws(()=>changeDiscipleHandle(store,d,'bad/name'),/letters/);
+ changeDiscipleHandle(store,d,'briannahcooper');
+ assert.equal(d.code,'KEEP');assert.equal(d.handle,'briannahcooper');assert.deepEqual(d.handleAliases,['oldpreferredname']);
+ assert.equal(allocateDiscipleHandle(store,'oldpreferredname'),'oldpreferredname2');
+ assert.deepEqual(store.orders,[{id:'keep'}]);
+});

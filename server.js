@@ -15,7 +15,7 @@ import { eventReportCsv } from './lib/report.js';
 import { synchronizeKvnLive2026Event } from './lib/kvn-live-2026.js';
 import { createTicketConfirmationDispatcher, sendDiscipleApplicationNotice, sendDiscipleWelcome, sendOwnerPasswordReset } from './lib/email.js';
 import { createOwnerPasswordStore, createPasswordResetManager } from './lib/owner-auth.js';
-import { upsertDiscipleFromApplication, allocateDiscipleHandle, affiliatePublicUrl } from './lib/disciple-sync.js';
+import { upsertDiscipleFromApplication, allocateDiscipleHandle, affiliatePublicUrl, changeDiscipleHandle } from './lib/disciple-sync.js';
 import { receiveDiscipleApplication } from './lib/disciple-intake.js';
 import { approveDiscipleApplication, resendDiscipleWelcome, reviewDiscipleApplication, setDiscipleActiveStatus } from './lib/disciple-operations.js';
 import { buildSystemHealth } from './lib/system-health.js';
@@ -397,6 +397,7 @@ app.post('/api/disciples', auth, owner, async (req,res)=>{
 });
 app.put('/api/disciples/:id', auth, owner, (req,res)=>{
   const d=readStore(),x=d.disciples.find(v=>v.id===req.params.id); if(!x||!(req.user.role==='owner'||x.organizationId===req.user.organizationId)) return res.status(404).json({error:'Disciple not found.'});
+  if(req.body.handle!==undefined){try{const previous=x.handle;if(changeDiscipleHandle(d,x,req.body.handle)){logAudit(d,req.user,'disciple.handle_changed','disciple',x.id,{previous,handle:x.handle});}}catch(error){return res.status(error.statusCode||400).json({error:error.message});}}
   for(const k of ['name','email','status','payoutMethod','payoutNotes']) if(req.body[k]!==undefined)x[k]=req.body[k]; if(req.body.defaultCommissionPercent!==undefined)x.defaultCommissionPercent=Math.max(0,Math.min(100,Number(req.body.defaultCommissionPercent)||0)); writeStore(d);res.json({disciple:x});
 });
 app.post('/api/disciples/:id/event-rate', auth, owner, (req,res)=>{
@@ -405,7 +406,7 @@ app.post('/api/disciples/:id/event-rate', auth, owner, (req,res)=>{
 });
 app.get('/api/disciples/:code/resolve',(req,res)=>{ const d=readStore(),x=d.disciples.find(v=>v.code===String(req.params.code||'').toUpperCase()&&v.status==='active'); if(!x)return res.status(404).json({error:'Disciple not found.'}); res.json({disciple:{id:x.id,name:x.name,code:x.code,handle:x.handle||''}}); });
 function discipleRedirect(req,res,handle){
-  const d=readStore(),x=d.disciples.find(v=>String(v.handle||'').toLowerCase()===String(handle||'').toLowerCase()&&v.status==='active');
+  const d=readStore(),x=d.disciples.find(v=>[v.handle,...(v.handleAliases||[])].some(h=>String(h||'').toLowerCase()===String(handle||'').toLowerCase())&&v.status==='active');
   if(!x)return res.status(404).send('Disciple link not found.');
   const event=d.events.find(e=>e.status==='published'&&String(e.slug||'').includes('kingdom-vibe-live'))||d.events.find(e=>e.status==='published');
   if(!event)return res.redirect(302,'https://kvnlive.com/?disciple='+encodeURIComponent(x.code));
