@@ -11,9 +11,9 @@ test('Acts 2:44 contribution checkout creates a non-ticket payment and records i
   fs.copyFileSync(new URL('../data/store.json',import.meta.url),path.join(dir,'store.json'));
   const sessionsUrl=new URL('../node_modules/stripe/esm/resources/Checkout/Sessions.js',import.meta.url).href;
   const preload=path.join(dir,'providers.mjs');
-  fs.writeFileSync(preload,`import {Sessions} from ${JSON.stringify(sessionsUrl)};let count=0;Sessions.prototype.create=async function(config){const id='cs_don_'+(++count);globalThis.__donSession={id,config};return {id,url:'https://checkout.example.test/'+id};};Sessions.prototype.retrieve=async function(id){return {id,payment_status:'paid',amount_total:5000,payment_intent:'pi_don_test',metadata:{order_type:'donation',donation_id:JSON.parse(require('fs').readFileSync('x','utf8'))}};};`);
+  fs.writeFileSync(preload,`import {Sessions} from ${JSON.stringify(sessionsUrl)};let count=0;Sessions.prototype.create=async function(config){const id='cs_don_'+(++count);return {id,url:'https://checkout.example.test/'+id};};`);
   const port=42000+Math.floor(Math.random()*1000),base=`http://127.0.0.1:${port}`;
-  const child=spawn(process.execPath,['server.js'],{cwd:root,env:{...process.env,PORT:String(port),BASE_URL:base,DATA_DIR:dir,STRIPE_SECRET_KEY:'sk_test_local_only',STRIPE_WEBHOOK_SECRET:'whsec_test_only'},stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath,['--import',preload,'server.js'],{cwd:root,env:{...process.env,PORT:String(port),BASE_URL:base,DATA_DIR:dir,STRIPE_SECRET_KEY:'sk_test_local_only',STRIPE_WEBHOOK_SECRET:'whsec_test_only'},stdio:['ignore','pipe','pipe']});
   t.after(()=>{child.kill();fs.rmSync(dir,{recursive:true,force:true});});
   let stderr='';child.stderr.on('data',c=>stderr+=c);
   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error(stderr||'startup timeout')),5000);child.stdout.on('data',c=>{if(String(c).includes('running at')){clearTimeout(timer);resolve();}});child.on('exit',()=>{clearTimeout(timer);reject(Error(stderr));});});
