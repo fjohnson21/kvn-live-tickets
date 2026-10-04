@@ -5,3 +5,5 @@
   text-decoration-thickness: 3px;
   text-decoration-skip-ink: none;
 }
+
+.kvn-simple{padding-block:2rem}.kvn-simple header h1{font-size:clamp(2rem,5vw,3.5rem);margin:.5rem 0}.kvn-simple .products{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.kvn-simple .product-card{display:flex;flex-direction:column;justify-content:space-between;gap:1rem}.kvn-simple .product-card h3{font-size:1.5rem}.kvn-simple .pass-benefits{line-height:1.6}.pass-choice summary{padding:.8rem 1rem;background:#111;color:white;cursor:pointer;font-weight:700;min-height:44px}.pass-choice[open] summary{margin-bottom:1rem}.pass-choice .quantity-control{display:block;margin:1rem 0}.pass-choice input{max-width:100px;margin-left:1rem}.pass-choice .btn{width:100%;margin-top:1rem}.event-more{margin:1.5rem 0;border-top:1px solid #777;padding-top:1rem}.event-more summary{cursor:pointer;min-height:44px}.pass-choice summary:focus-visible,.event-more summary:focus-visible{outline:2px solid #e2252b;outline-offset:3px}@media(max-width:700px){.kvn-simple .products{grid-template-columns:1fr}}
