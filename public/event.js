@@ -65,7 +65,7 @@ function renderProducts(type) {
 function renderKvnChoices(){
  return '<div class="products">'+products('ticket').map(p=>{
  const vip=p.id==='kv-all-access-2026',pricing=earlyReleasePriceSummary(p),soldOut=Number(p.available||0)<=0;
- return `<article class="product-card" id="offer-${esc(p.id)}"><div><h3>${esc(p.name)}</h3><p>${vip?'The full day + premium worship seating':'The evening worship experience'}</p><ul class="pass-benefits"><li>${vip?'Premium seating · Rows 1–18':'Reserved seating · Rows 19–35'}</li><li>${vip?'2:30 PM Kingdom Market Expo, Vendor Mall + Food Hall Experience':'Entry and pre-worship seating at 5 PM'}</li>${vip?'<li>KV Trailblazer Awards + Kingdom Vibe Technology Release</li>':''}<li>6 PM live worship experience</li></ul></div><div><div class="product-price">${pricing.active?'<span class="regular-price">'+money(pricing.regularPrice)+'</span> ':''}${money(pricing.currentPrice)}</div>${pricing.active?'<p class="early-release-note">Early bird price · $10 discount applied</p>':''}<details class="pass-choice"><summary>${soldOut?'Sold out':'Choose '+esc(p.name)}</summary><label class="quantity-control">Number of passes<input type="number" id="qty-${p.id}" value="0" min="0" max="${p.maxPerOrder||20}" step="${p.quantityStep||1}" inputmode="numeric" ${soldOut?'disabled':''}></label><div id="passes-${p.id}" class="pass-config"></div><button class="btn primary" id="select-${p.id}" onclick="add('${p.id}')" disabled>Add to cart</button></details></div></article>`;
+ return `<article class="product-card" id="offer-${esc(p.id)}"><div><h3>${esc(p.name)}</h3><p>${vip?'The full day + premium worship seating':'The evening worship experience'}</p><ul class="pass-benefits"><li>${vip?'Premium seating · Rows 1–18':'Reserved seating · Rows 19–35'}</li><li>${vip?'2:30 PM Kingdom Market Expo, Vendor Mall + Food Hall Experience':'Entry and pre-worship seating at 5 PM'}</li>${vip?'<li>KV Trailblazer Awards + Kingdom Vibe Technology Release</li>':''}<li>6 PM live worship experience</li></ul></div><div><div class="product-price">${pricing.active?'<span class="regular-price">'+money(pricing.regularPrice)+'</span> ':''}${money(pricing.currentPrice)}</div>${pricing.active?'<p class="early-release-note">Early bird price · $10 discount applied</p>':''}<details class="pass-choice"><summary>${soldOut?'Sold out':'Choose '+esc(p.name)}</summary><label class="quantity-control">Number of passes<input type="number" id="qty-${p.id}" value="0" min="0" max="${p.maxPerOrder||20}" step="${p.quantityStep||1}" inputmode="numeric" ${soldOut?'disabled':''}></label><div id="passes-${p.id}" class="pass-config"></div></details><button class="btn primary" style="width:100%;margin-top:1rem" id="select-${p.id}" onclick="chooseOrAdd('${p.id}')" ${soldOut?'disabled':''}>${soldOut?'Sold out':'Add to Cart'}</button></div></article>`;
  }).join('')+'</div>';
 }
 
@@ -102,9 +102,18 @@ function refreshProductSelection(productId) {
   const input = document.getElementById(`qty-${productId}`), button = document.getElementById(`select-${productId}`);
   if (!product || !input || !button) return;
   const state = selectionQuantityState(input.value, product);
-  button.disabled = Number(product.available || 0) <= 0 || !state.canSelect;
+  button.disabled = Number(product.available || 0) <= 0 || (!isKvnBundle() && !state.canSelect);
   if (product.type === 'ticket') renderPassEditor(productId);
 }
+window.chooseOrAdd = function(productId) {
+ const input=document.getElementById(`qty-${productId}`), details=input.closest('details');
+ const product=event.products.find(p=>p.id===productId);
+ if(details)details.open=true;
+ if(!selectionQuantityState(input.value,product).canSelect){input.value=String(product.minPerOrder||1);refreshProductSelection(productId);}
+ const missing=document.querySelector(`#passes-${productId} select:invalid`) || [...document.querySelectorAll(`#passes-${productId} select`)].find(s=>!s.value);
+ if(missing){missing.focus();return;}
+ window.add(productId);
+};
 window.add = function add(productId) {
   const product = event.products.find(candidate => candidate.id === productId), state = selectionQuantityState(document.getElementById(`qty-${productId}`).value, product), quantity = state.quantity;
   if (!state.canSelect) { alert('Choose a valid quantity before selecting this pass.'); return; }
