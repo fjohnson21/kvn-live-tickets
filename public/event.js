@@ -41,7 +41,7 @@ async function init() {
   });
   renderPage(); renderCart();
   const chosen = selectOfferProduct(event, params.get('offer'));
-  if(chosen){const input=document.getElementById(`qty-${chosen.id}`);input.value=String(chosen.minPerOrder||1);refreshProductSelection(chosen.id);input.closest('article').scrollIntoView({block:'start'});input.focus({preventScroll:true});}
+  if(chosen){const input=document.getElementById(`qty-${chosen.id}`);const disclosure=input.closest('details');if(disclosure)disclosure.open=true;input.value=String(chosen.minPerOrder||1);refreshProductSelection(chosen.id);input.closest('article').scrollIntoView({block:'start'});input.focus({preventScroll:true});}
 
 }
 function isKvnBundle() { return event?.slug === 'kingdom-vibe-live-2026'; }
@@ -61,12 +61,22 @@ function renderProducts(type) {
     return `<article class="product-card" id="offer-${esc(product.id)}"><div><span class="badge">${esc(product.badge || product.type)}</span><h3>${esc(product.name)}</h3>${productDescription(product.description)}<small class="availability">${esc(availabilityLabel(product))}</small>${apparelCopy}</div><div>${priceHtml}<div class="product-actions">${product.type === 'apparel' ? standaloneSize : '<span></span>'}<label class="quantity-control">Quantity<input type="number" id="qty-${product.id}" value="0" min="0" max="${product.maxPerOrder || 20}" step="${product.quantityStep || 1}" inputmode="numeric" ${soldOut ? 'disabled' : ''}></label><button class="btn primary" id="select-${product.id}" onclick="add('${product.id}')" disabled>${soldOut ? 'Sold Out' : isKvnBundle() ? 'Purchase Pass' : 'Select Pass'}</button></div><div id="passes-${product.id}" class="pass-config"></div></div></article>`;
   }).join('')}</div>`;
 }
+
+function renderKvnChoices(){
+ return '<div class="products">'+products('ticket').map(p=>{
+ const vip=p.id==='kv-all-access-2026',pricing=earlyReleasePriceSummary(p),soldOut=Number(p.available||0)<=0;
+ return `<article class="product-card" id="offer-${esc(p.id)}"><div><h3>${esc(p.name)}</h3><p>${vip?'The full day + premium worship seating':'The evening worship experience'}</p><ul class="pass-benefits"><li>${vip?'Premium seating · Rows 1–18':'Reserved seating · Rows 19–35'}</li><li>${vip?'2:30 PM Kingdom Market Expo, Vendor Mall + Food Hall Experience':'Entry and pre-worship seating at 5 PM'}</li>${vip?'<li>KV Trailblazer Awards + Kingdom Vibe Technology Release</li>':''}<li>6 PM live worship experience</li></ul></div><div><div class="product-price">${pricing.active?'<span class="regular-price">'+money(pricing.regularPrice)+'</span> ':''}${money(pricing.currentPrice)}</div>${pricing.active?'<p class="early-release-note">Early bird price · $10 discount applied</p>':''}<details class="pass-choice"><summary>${soldOut?'Sold out':'Choose '+esc(p.name)}</summary><label class="quantity-control">Number of passes<input type="number" id="qty-${p.id}" value="0" min="0" max="${p.maxPerOrder||20}" step="${p.quantityStep||1}" inputmode="numeric" ${soldOut?'disabled':''}></label><div id="passes-${p.id}" class="pass-config"></div><button class="btn primary" id="select-${p.id}" onclick="add('${p.id}')" disabled>Add to cart</button></details></div></article>`;
+ }).join('')+'</div>';
+}
+
 function renderPage() {
   const blocks = event.layout || [], heroStyle = event.media?.hero ? `style="background-image:linear-gradient(#0009,#000d),url('${event.media.hero}')"` : '';
   page.innerHTML = `<section class="event-hero" ${heroStyle}><div class="shell"><span class="kicker">${esc(organization?.name || 'KVN PARTNER EVENT')}</span><h1>${esc(event.title)}</h1><p>${esc(event.description)}</p><div class="inline-actions"><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">${isKvnBundle() ? 'Purchase Pass' : 'Get Tickets'}</button><button class="btn" onclick="drawerOpen(true)">View Cart</button></div></div></section><div class="shell">${blocks.filter(block => block.type !== 'hero').map(blockHtml).join('')}</div>`;
+  if(isKvnBundle()) page.innerHTML = `<div class="shell section kvn-simple"><header><span class="kicker">November 21, 2026</span><h1>Kingdom Vibe Live</h1><p>${esc(event.venue)} · ${esc(event.location)}</p></header><section data-type="tickets"><h2>Choose your pass</h2><p>Every pass includes a Drop 001 T-shirt. Select your pass, quantity and shirt size.</p>${renderKvnChoices()}</section><details class="event-more"><summary>Event details &amp; policies</summary><p>Live worship featuring KV Worship, Imani Joi Raeford, Yael Hilton and Jalisa Faye, followed by honoring church partners.</p>${blocks.filter(b=>b.type==='details').map(blockHtml).join('')}<a href="https://kvnlive.com/#faq">View event FAQs</a></details></div>`;
   for (const product of event.products) {
     const input = document.getElementById(`qty-${product.id}`);
     if (!input) continue;
+    input.closest('details.pass-choice')?.addEventListener('toggle',event=>{if(event.currentTarget.open&&Number(input.value)===0&&!input.disabled){input.value=String(product.minPerOrder||1);refreshProductSelection(product.id);}});
     input.addEventListener('input', () => refreshProductSelection(product.id));
     refreshProductSelection(product.id);
   }
