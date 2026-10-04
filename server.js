@@ -216,8 +216,8 @@ function pruneSessions(){ const now=Date.now(); for(const [token,session] of ses
 function auth(req,res,next){ res.set('Cache-Control','no-store'); const token=cookieValue(req,sessionCookieName),session=sessions.get(token); if(!session||session.expiresAt<=Date.now()){if(token)sessions.delete(token);return res.status(401).json({error:'Sign in required.'});} const user=readStore().users.find(u=>u.id===session.userId); if(!user) return res.status(401).json({error:'Sign in required.'}); req.user=user; req.sessionToken=token; next(); }
 function owner(req,res,next){ if(req.user?.role!=='owner') return res.status(403).json({error:'Owner access required.'}); next(); }
 function canManage(user,event){ return user.role==='owner' || ((user.role==='organizer'||user.role==='staff') && event.organizationId===user.organizationId); }
-function canonicalPass(e,p){if(e.slug!=='kingdom-vibe-live-2026')return p;const name=({'kv-all-access-2026':'Kingdom VIP Pass','kv-kingdom-pass-2026':'Kingdom Pass'})[p.id];return name?{...p,name}:p;}
-function publicEvent(e,orders=[]){ return {...e, products:e.products.map(p=>{const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...canonicalPass(e,p),available:Math.max(0,p.inventory-p.sold),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
+function canonicalPass(e,p){if(e.slug!=='kingdom-vibe-live-2026')return p;const name=({'kv-all-access-2026':'Kingdom VIP Pass Bundle','kv-kingdom-pass-2026':'Kingdom Pass Bundle'})[p.id];return name?{...p,name}:p;}
+function publicEvent(e,orders=[]){ return {...e, products:e.products.map(p=>{const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...canonicalPass(e,p),available:p.salesEnd&&Date.now()>=Date.parse(p.salesEnd)?0:Math.max(0,p.inventory-p.sold),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
 function discipleRate(disciple,eventId){
   const override=(disciple.eventRates||[]).find(x=>x.eventId===eventId);
   return Math.max(0,Math.min(100,Number(override?.percent ?? disciple.defaultCommissionPercent ?? readStore().settings.defaultDiscipleCommissionPercent ?? 0)));
@@ -532,7 +532,7 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     const cart=Array.isArray(req.body.cart)?req.body.cart:[]; if(!cart.length) return res.status(400).json({error:'Your cart is empty.'});
     let subtotal=0, groupDiscountAmount=0, earlyReleaseDiscountAmount=0; const normalized=[]; const lineItems=[];
     for(const item of cart){
-      const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct) continue; const p=canonicalPass(e,sourceProduct);
+      const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct) continue; const p=canonicalPass(e,sourceProduct); if(p.salesEnd&&Date.now()>=Date.parse(p.salesEnd))return res.status(400).json({error:'The Community Pass release has ended. Please choose an available bundle.'});
       if(p.type==='ticket'){
         let result;try{result=normalizeTicketCartItem(p,item);if(p.earlyRelease?.enabled)result=applyEarlyReleasePricing(result,p,pendingEarlyReleaseUnits(d.orders,e.id,p.id)+normalized.filter(x=>x.productId===p.id).reduce((n,x)=>n+Number(x.earlyReleaseQuantity||0),0));}catch(err){if(err.statusCode)return res.status(err.statusCode).json({error:err.message});throw err;}
         subtotal+=result.item.ticketSubtotal+result.apparelSubtotal;groupDiscountAmount+=result.item.groupDiscountPerUnit*result.item.quantity;normalized.push(result.item);
