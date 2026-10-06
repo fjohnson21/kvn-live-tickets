@@ -24,8 +24,8 @@ test('synchronizes the KVN Live event to the approved two-pass catalog', () => {
 
   assert.equal(event.date, '2026-11-21T14:30:00-05:00');
   assert.deepEqual(event.products.map(product => [product.id, product.name, product.price, product.inventory]), [
-    ['kv-all-access-2026', 'T-Shirt & Full Access (Upgrade)', 4900, 600],
-    ['kv-kingdom-pass-2026', 'T-Shirt & Kingdom Pass', 3900, 400]
+    ['kv-all-access-2026', 'Kingdom VIP Pass Bundle', 4900, 600],
+    ['kv-kingdom-pass-2026', 'Kingdom Pass Bundle', 3900, 300]
   ]);
   assert.match(event.products[0].description, /ROWS 1–18/);
   assert.match(event.products[1].description, /ROWS 19–35/);
@@ -55,3 +55,14 @@ test('synchronization is idempotent and preserves sales for stable pass IDs', ()
 test('does nothing when the target event is absent', () => {
   assert.equal(synchronizeKvnLive2026Event({ events: [] }), false);
 });
+
+ test('removes Community Pass from new sales while preserving existing orders and tickets',()=>{
+ const store=fixture();
+ store.events[0].products.push({id:'kv-community-2026',type:'ticket',sold:3});
+ store.orders=[{id:'existing',items:[{id:'kv-community-2026',quantity:1}],status:'paid'}];
+ store.tickets=[{id:'existing-ticket',productId:'kv-community-2026'}];
+ const records=JSON.stringify({orders:store.orders,tickets:store.tickets});
+ synchronizeKvnLive2026Event(store);
+ assert.equal(store.events[0].products.some(p=>p.id==='kv-community-2026'),false);
+ assert.equal(JSON.stringify({orders:store.orders,tickets:store.tickets}),records);
+ });
