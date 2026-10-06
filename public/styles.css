@@ -9,3 +9,14 @@
 .shirt-bundle-feature{display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:center;margin:2rem 0;padding:1.5rem;border:1px solid #333}.shirt-bundle-feature img{width:100%;height:auto;background:#eee}.shirt-bundle-feature h2{font-size:clamp(2rem,4vw,4rem)}@media(max-width:700px){.shirt-bundle-feature{grid-template-columns:1fr;padding:1rem}}
 
 .profile-link{appearance:none;border:0;background:transparent;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}.profile-link:hover{opacity:.65}.modal-card .metrics{margin:14px 0}.modal-card .card{margin:10px 0}
+
+/* Shared Kingdom Vibe Live artist banner. */
+.ticketing-banner{background:#000;color:#fff}
+.national-launch{margin:0;padding:1.4rem 5vw .5rem;text-align:center;color:#fff;font-size:clamp(1rem,2vw,1.65rem);font-weight:900;letter-spacing:.28em;line-height:1.4}
+.event-banner-art{position:relative;isolation:isolate}
+.event-banner-art .event-banner-image{display:block;width:100%;height:auto;filter:url(#banner-black-white)}
+.event-banner-portraits{position:absolute;inset:0;display:block;width:100%;height:auto;clip-path:url(#banner-photo-boxes);pointer-events:none}
+
+.banner-color-defs{position:absolute;width:0;height:0;overflow:hidden}
+
+.ticket-urgency{border-left:4px solid #ef1b24;padding:1rem;background:#171717;color:#fff;font-weight:800}
