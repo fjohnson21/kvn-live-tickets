@@ -33,7 +33,7 @@ async function init() {
   event = data.event; organization = data.organization;
   document.documentElement.style.setProperty('--accent', event.theme?.accent || '#e2252b');
   document.title = `${event.title} • KVN Live Tickets`;
-  cart = JSON.parse(localStorage.getItem(`cart_${event.id}`) || '[]').map(item => {
+  cart = JSON.parse(localStorage.getItem(`cart_${event.id}`) || '[]').filter(item => event.products.some(product => product.id === item.id)).map(item => {
     const product = event.products.find(candidate => candidate.id === item.id);
     if (product?.type !== 'ticket') return item;
     const legacy = Array.isArray(item.apparelSizes) ? item.apparelSizes.map(size => ({ apparelSelected: true, apparelSize: size })) : item.ticketSelections;
@@ -64,15 +64,29 @@ function renderProducts(type) {
 
 function renderKvnChoices(){
  return '<div class="products">'+products('ticket').map(p=>{
- const community=p.id==='kv-community-2026',vip=p.id==='kv-all-access-2026',pricing=earlyReleasePriceSummary(p),soldOut=Number(p.available||0)<=0;
- return `<article class="product-card" id="offer-${esc(p.id)}"><div><h3>${esc(p.name)}</h3><p>${community?'$15 evening admission · no shirt or VIP access':vip?'The full day + premium worship seating':'The evening worship experience + Drop 001'}</p><ul class="pass-benefits"><li>${vip?'Premium seating · Rows 1–18':'Evening seating · Rows 19–35'}</li><li>${vip?'2:30 PM Kingdom Market Expo, Vendor Mall + Food Hall Experience':'Entry and pre-worship seating at 5 PM'}</li>${vip?'<li>KV Trailblazer Awards + Kingdom Vibe Technology Release</li>':''}<li>6 PM live worship experience</li></ul></div><div><div class="product-price">${pricing.active?'<span class="regular-price">'+money(pricing.regularPrice)+'</span> ':''}${money(pricing.currentPrice)}</div>${pricing.active?'<p class="early-release-note">Early bird price · $10 discount applied</p>':''}<details class="pass-choice"><summary>${soldOut?'Sold out':'Choose '+esc(p.name)}</summary><label class="quantity-control">Number of passes<input type="number" id="qty-${p.id}" value="0" min="0" max="${p.maxPerOrder||20}" step="${p.quantityStep||1}" inputmode="numeric" ${soldOut?'disabled':''}></label><div id="passes-${p.id}" class="pass-config"></div></details><button class="btn primary" style="width:100%;margin-top:1rem" id="select-${p.id}" onclick="chooseOrAdd('${p.id}')" ${soldOut?'disabled':''}>${soldOut?'Sold out':'Add to Cart'}</button></div></article>`;
+ const vip=p.id==='kv-all-access-2026',pricing=earlyReleasePriceSummary(p),soldOut=Number(p.available||0)<=0;
+ return `<article class="product-card" id="offer-${esc(p.id)}"><div><h3>${esc(p.name)}</h3><p>${vip?'The full day + premium worship seating':'The evening worship experience + Drop 001'}</p><ul class="pass-benefits"><li>${vip?'Premium seating · Rows 1–18':'Evening seating · Rows 19–35'}</li><li>${vip?'2:30 PM Kingdom Market Expo, Vendor Mall + Food Hall Experience':'Entry and pre-worship seating at 5 PM'}</li>${vip?'<li>KV Trailblazer Awards + Kingdom Vibe Technology Release</li>':''}<li>6 PM live worship experience</li></ul></div><div><div class="product-price">${pricing.active?'<span class="regular-price">'+money(pricing.regularPrice)+'</span> ':''}${money(pricing.currentPrice)}</div>${pricing.active?'<p class="early-release-note">Early bird price · $10 discount applied</p>':''}<details class="pass-choice"><summary>${soldOut?'Sold out':'Choose '+esc(p.name)}</summary><label class="quantity-control">Number of passes<input type="number" id="qty-${p.id}" value="0" min="0" max="${p.maxPerOrder||20}" step="${p.quantityStep||1}" inputmode="numeric" ${soldOut?'disabled':''}></label><div id="passes-${p.id}" class="pass-config"></div></details><button class="btn primary" style="width:100%;margin-top:1rem" id="select-${p.id}" onclick="chooseOrAdd('${p.id}')" ${soldOut?'disabled':''}>${soldOut?'Sold out':'Add to Cart'}</button></div></article>`;
  }).join('')+'</div>';
 }
 
 function renderPage() {
   const blocks = event.layout || [], heroStyle = event.media?.hero ? `style="background-image:linear-gradient(#0009,#000d),url('${event.media.hero}')"` : '';
   page.innerHTML = `<section class="event-hero" ${heroStyle}><div class="shell"><span class="kicker">${esc(organization?.name || 'KVN PARTNER EVENT')}</span><h1>${esc(event.title)}</h1><p>${esc(event.description)}</p><div class="inline-actions"><button class="btn primary" onclick="document.querySelector('[data-type=tickets]')?.scrollIntoView()">${isKvnBundle() ? 'Purchase Pass' : 'Get Tickets'}</button><button class="btn" onclick="drawerOpen(true)">View Cart</button></div></div></section><div class="shell">${blocks.filter(block => block.type !== 'hero').map(blockHtml).join('')}</div>`;
-  if(isKvnBundle()) page.innerHTML = `<div class="shell section kvn-simple"><header><span class="kicker">November 21, 2026</span><h1>Kingdom Vibe Live</h1><p>${esc(event.venue)} · ${esc(event.location)}</p></header><section data-type="tickets"><h2>Choose your pass</h2><p>Community Pass: admission only. Kingdom Pass and VIP bundles include Drop 001. Community release ends October 7 at 7:40 PM ET, subject to availability. Fees are added at checkout.</p>${renderKvnChoices()}</section><details class="event-more"><summary>Event details &amp; policies</summary><p>Live worship featuring KV Worship, Imani Joi Raeford, Yael Hilton and Jalisa Faye, followed by honoring church partners.</p>${blocks.filter(b=>b.type==='details').map(blockHtml).join('')}<a href="https://kvnlive.com/#faq">View event FAQs</a></details></div>`;
+  if(isKvnBundle()) page.innerHTML = `<div class="ticketing-banner">      <p class="national-launch">NATIONAL LAUNCH</p>
+      <div class="event-banner-art">
+        <svg class="banner-color-defs" width="0" height="0" aria-hidden="true"><defs>
+          <filter id="banner-black-white" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 -1 0 0 1  -1 0 0 0 1  -1 0 0 0 1  0 0 0 1 0"/></filter>
+          <clipPath id="banner-photo-boxes" clipPathUnits="objectBoundingBox">
+            <rect x="0.01748" y="0.41601" width="0.2345" height="0.37204"/>
+            <rect x="0.26042" y="0.41601" width="0.23563" height="0.37204"/>
+            <rect x="0.50395" y="0.41601" width="0.23563" height="0.37204"/>
+            <rect x="0.74803" y="0.41601" width="0.23563" height="0.37204"/>
+          </clipPath>
+        </defs></svg>
+      <img class="event-banner-image" src="https://kvnlive.com/assets/kingdom-vibe-live-header.png" width="1774" height="887" fetchpriority="high" alt="Kingdom Vibe Live, November 21. Featuring Jalisa Faye, Yael Hilton, Imani Raeford, and host Asa Clark."/>
+        <img class="event-banner-portraits" src="https://kvnlive.com/assets/kingdom-vibe-live-header.png" width="1774" height="887" alt="" aria-hidden="true"/>
+      </div>
+</div><div class="shell section kvn-simple"><header><span class="kicker">November 21, 2026</span><h1>Kingdom Vibe Live</h1><p>${esc(event.venue)} · ${esc(event.location)}</p></header><section data-type="tickets"><p class="ticket-urgency">This event will sell out soon. Secure your pass today.</p><h2>Choose your pass</h2><p>All passes include Drop 001 — Not Self Made — Made By God T-Shirt. Choose one T-shirt size for each pass. Fees are added at checkout.</p>${renderKvnChoices()}</section><details class="event-more"><summary>Event details &amp; policies</summary><p>Live worship featuring KV Worship, Imani Joi Raeford, Yael Hilton and Jalisa Faye, followed by honoring church partners.</p>${blocks.filter(b=>b.type==='details').map(blockHtml).join('')}<a href="https://kvnlive.com/#faq">View event FAQs</a></details></div>`;
   for (const product of event.products) {
     const input = document.getElementById(`qty-${product.id}`);
     if (!input) continue;
