@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {buildDashboardMetrics} from '../lib/dashboard-metrics.js';
+test('paid revenue excludes pending, failed and refunded orders with separately labeled refunds',()=>{assert.deepEqual(buildDashboardMetrics([{status:'pending',amountTotal:500},{status:'paid',amountTotal:900},{status:'refunded',amountTotal:400},{status:'failed',amountTotal:100}]),{paidRevenue:900,paidOrders:1,refundedOrderCount:1,refundedOrderOriginalAmount:400})});
