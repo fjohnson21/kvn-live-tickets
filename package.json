@@ -17,6 +17,6 @@
   },
   "description": "KVN Live Tickets v4 upgraded multi-organizer ticketing platform",
   "devDependencies": {
-    "jsdom": "^30.1.2"
+    "jsdom": "^26.1.0"
   }
 }
