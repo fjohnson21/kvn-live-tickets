@@ -9,12 +9,12 @@ function offerEvent() {
   return store.events[0];
 }
 
-test('positions the event offer as a shirt purchase with Kingdom Vibe Live access', () => {
+test('positions the current event offer as a pass bundle including Drop 001', () => {
   const event = offerEvent();
   const phrase = 'Your tee purchase grants you a complimentary Kingdom Vibe Live pass.';
 
-  assert.match(event.description, /Get the official Drop 001/i);
-  assert.match(event.description, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(event.description, /All passes include Drop 001/i);
+  assert.ok(event.products.every(product => product.includedApparel.enabled && product.includedApparel.price === 0));
   assert.ok(event.products.every(product => product.description.includes(phrase)));
   assert.match(event.layout.find(block => block.type === 'tickets').title, /Choose Your Shirt and Experience/i);
   assert.match(event.layout.find(block => block.id === 'kv-wear').body, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

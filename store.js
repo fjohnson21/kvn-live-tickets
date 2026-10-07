@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { ensureCrmCollections } from './lib/crm-records.js';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
@@ -33,9 +34,12 @@ export function readStore(){
   d.settings.feePlans ||= [{id:'standard',name:'Standard',percent:5,fixed:0},{id:'partner',name:'Kingdom Partner',percent:3.5,fixed:0},{id:'enterprise',name:'Enterprise',percent:2.5,fixed:25}];
   d.organizations.forEach(o=>{ o.feePlanId ||= 'standard'; o.payoutSchedule ||= 'weekly'; o.onboarding ||= {profile:true,branding:false,payouts:false,firstEvent:false}; o.profile ||= {contactName:'',businessEmail:'',phone:'',website:'',social:{instagram:'',facebook:'',tiktok:'',youtube:''},address:{street:'',city:'',state:'',postalCode:'',country:'United States'},organizationType:'',description:'',publicContact:false}; });
   d.events.forEach(e=>{ e.taxRatePercent ??= d.settings.taxRatePercent; e.customSlug ||= e.slug; e.media ||= {}; e.feeSettings={...defaultFeeSettings(),...(e.feeSettings||{})}; e.products ||= []; e.products.forEach(p=>{p.minPerOrder ??= 1;p.maxPerOrder ??= 20;p.quantityStep ??= 1;p.group ||= {enabled:false,minQty:1,maxQty:p.maxPerOrder,discountType:'percent',discountValue:0,tiers:[]};p.includedApparel ||= {enabled:false,productId:'',sizes:[],sizeInventory:{},quantityPerTicket:1};}); });
-  return ensureShopCollections(d);
+  return ensureCrmCollections(ensureShopCollections(d));
 }
-export function writeStore(data){ fs.writeFileSync(file, JSON.stringify(data,null,2)); return data; }
+export function writeStore(data){
+  const temp=path.join(dataDir, `.store-${process.pid}-${crypto.randomBytes(8).toString('hex')}.tmp`);
+  try {const mode=fs.existsSync(file)?fs.statSync(file).mode&0o777:0o600;fs.writeFileSync(temp,JSON.stringify(data,null,2),{mode,flag:'wx'});fs.renameSync(temp,file);return data;} finally {if(fs.existsSync(temp))fs.unlinkSync(temp);}
+}
 export function id(prefix='id'){ return `${prefix}_${crypto.randomBytes(6).toString('hex')}`; }
 export function slugify(v=''){ return v.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,80); }
 export function ticketCode(){ return `KVN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`; }
