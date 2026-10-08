@@ -26,3 +26,5 @@
 .sidebar{height:100vh;height:100dvh;overflow-y:auto;overscroll-behavior-y:contain;scrollbar-gutter:stable}
 .sidebar-foot{position:static;margin-top:24px}
 @media(max-width:900px){.sidebar{height:auto;overflow:visible}.sidebar nav{display:flex;flex-direction:column;max-height:45vh;max-height:45dvh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable}.sidebar nav button{flex-shrink:0}}
+
+#marketingDialog{overflow:auto;overscroll-behavior:contain;scroll-padding-top:90px}#marketingDialog>.drawer-head{position:sticky;top:-24px;z-index:2;background:var(--panel);padding:16px 0;display:flex;flex-wrap:wrap;align-items:center;gap:10px;border-bottom:1px solid var(--line)}#marketingDialog>.drawer-head h2{flex:1 1 200px;margin:0}#marketingDialog>.drawer-head button{flex:0 0 auto}#miFields{border:0;padding:0;margin:0;min-width:0}#miFile{max-width:100%;min-width:0}#miFileStatus{overflow-wrap:anywhere}#miResults{min-width:0}#miSample td{overflow-wrap:anywhere}#marketingDialog button{min-height:44px}@media(max-width:760px){#marketingDialog>.drawer-head{top:-16px}}
