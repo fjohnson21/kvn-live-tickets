@@ -96,6 +96,7 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
   } catch(err) { console.error('Webhook error',err.message); res.status(400).send(`Webhook Error: ${err.message}`); }
 });
 
+app.use(['/api/marketing/import','/api/marketing/clean-csv'],auth,owner,express.json({limit:'24mb'}));
 app.use(express.json({limit:'2mb'}));
 app.use(express.static('public'));
 const uploadDir = process.env.UPLOAD_DIR || path.resolve('public/uploads');
