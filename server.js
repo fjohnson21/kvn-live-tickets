@@ -1,3 +1,5 @@
+import { ensureMarketing, syncContacts } from './lib/marketing.js';
+import { registerMarketingRoutes } from './lib/marketing-routes.js';
 import { prepareCrmStorage } from './lib/crm-backup.js';
 import { registerCrmRoutes } from './lib/crm-routes.js';
 import { syncCrmSources } from './lib/crm-sync.js';
@@ -226,6 +228,9 @@ const runCrmSync=async()=>{
  if(!crmStorageReady){prepareCrmStorage({dataDir:process.env.DATA_DIR,requiredMount:process.env.RENDER==='true'?'/opt/render/project/src/storage':process.env.DATA_DIR});crmStorageReady=true;console.log('CRM storage verified; pre-integration backup ready.');}
  return syncCrmSources({sourceUrl:process.env.CRM_SOURCE_URL,secret:process.env.CRM_SYNC_SECRET,readStore,writeStore,onSourceComplete:result=>console.log('CRM source reconciled '+JSON.stringify(result))});
 };
+const initialMarketingStore=ensureMarketing(readStore());
+syncContacts(initialMarketingStore);writeStore(initialMarketingStore);
+registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl});
 registerCrmRoutes(app,{auth,owner,readStore,writeStore,id,sync:runCrmSync,configured:crmConfigured,baseUrl});
 if(crmConfigured){
  const crmTimer=setInterval(()=>runCrmSync().catch(()=>console.error('CRM sync failed')),5*60*1000);crmTimer.unref();
