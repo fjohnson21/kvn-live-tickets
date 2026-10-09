@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check public/app.js && node --check public/dashboard.js && node --check public/checkin.js && node --check public/event.js"
+    "check": "node --check server.js && node --check public/app.js && node --check public/dashboard.js && node --check public/checkin.js && node --check public/event.js",
+    "test:mobile": "node --test browser-tests/mobile-dashboard.spec.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
@@ -17,6 +18,7 @@
   },
   "description": "KVN Live Tickets v4 upgraded multi-organizer ticketing platform",
   "devDependencies": {
-    "jsdom": "^26.1.0"
+    "jsdom": "^26.1.0",
+    "playwright": "1.56.1"
   }
 }
