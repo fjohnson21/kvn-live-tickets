@@ -1,3 +1,6 @@
 node_modules/
 package-lock.json
 .worktrees/
+
+# Private verified email event journal
+data/marketing-engagement.ndjson
