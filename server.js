@@ -1,3 +1,5 @@
+import {createAgreementStore} from './lib/performance-agreements.js';
+import {registerPerformanceAgreementRoutes} from './lib/performance-agreement-routes.js';
 import { ensureMarketing, syncContacts } from './lib/marketing.js';
 import { registerMarketingRoutes } from './lib/marketing-routes.js';
 import { prepareCrmStorage } from './lib/crm-backup.js';
@@ -98,6 +100,7 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
 
 app.use(['/api/marketing/import','/api/marketing/clean-csv'],auth,owner,express.json({limit:'24mb'}));
 app.use(express.json({limit:'2mb'}));
+app.use('/performance-agreement.html',(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next()});
 app.use(express.static('public'));
 const uploadDir = process.env.UPLOAD_DIR || path.resolve('public/uploads');
 requireDir(uploadDir);
@@ -231,6 +234,7 @@ const runCrmSync=async()=>{
 };
 const initialMarketingStore=ensureMarketing(readStore());
 syncContacts(initialMarketingStore);writeStore(initialMarketingStore);
+registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
 registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl});
 registerCrmRoutes(app,{auth,owner,readStore,writeStore,id,sync:runCrmSync,configured:crmConfigured,baseUrl});
 if(crmConfigured){

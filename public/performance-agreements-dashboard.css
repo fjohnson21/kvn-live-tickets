@@ -1,0 +1,1 @@
+.agreement-dialog{padding:16px;max-width:780px}.agreement-text{white-space:pre-wrap;overflow-wrap:anywhere}.agreement-hash{display:block;overflow-wrap:anywhere}#agreementsDialog{width:min(850px,calc(100vw - 24px));max-height:90vh;overflow:auto}#agreementsDialog textarea{width:100%}#agreementsDialog input[type=checkbox]{flex-shrink:0}#agreementsRoot td{overflow-wrap:anywhere}
