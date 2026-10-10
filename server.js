@@ -2,6 +2,7 @@ import {createAgreementStore} from './lib/performance-agreements.js';
 import {registerPerformanceAgreementRoutes} from './lib/performance-agreement-routes.js';
 import { ensureMarketing, syncContacts } from './lib/marketing.js';
 import { registerMarketingRoutes } from './lib/marketing-routes.js';
+import { createEngagementStore, registerEngagementWebhook } from './lib/marketing-engagement.js';
 import { prepareCrmStorage } from './lib/crm-backup.js';
 import { registerCrmRoutes } from './lib/crm-routes.js';
 import { syncCrmSources } from './lib/crm-sync.js';
@@ -75,6 +76,9 @@ function recordStripeReversal(event){
   writeStore(d);
   return affected;
 }
+
+const marketingEngagement = createEngagementStore({dataDir:runtimeDataDir});
+registerEngagementWebhook(app,{store:marketingEngagement});
 
 // Stripe webhook must receive the raw request body before JSON parsing.
 app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)=>{
@@ -235,7 +239,7 @@ const runCrmSync=async()=>{
 const initialMarketingStore=ensureMarketing(readStore());
 syncContacts(initialMarketingStore);writeStore(initialMarketingStore);
 registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
-registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl});
+registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl,engagement:marketingEngagement});
 registerCrmRoutes(app,{auth,owner,readStore,writeStore,id,sync:runCrmSync,configured:crmConfigured,baseUrl});
 if(crmConfigured){
  const crmTimer=setInterval(()=>runCrmSync().catch(()=>console.error('CRM sync failed')),5*60*1000);crmTimer.unref();
