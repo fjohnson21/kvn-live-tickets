@@ -16,7 +16,10 @@
  .dash-main .btn,.modal .btn,dialog .btn,.crm-record-link{min-height:44px;display:inline-flex;align-items:center;justify-content:center;white-space:normal}
  .dash-main .form-row{display:grid;grid-template-columns:1fr;align-items:stretch}.dash-main .form-row label{min-width:0}
  .marketing-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end}.marketing-toolbar>*{min-width:0;width:100%}.marketing-toolbar label{min-width:0}.marketing-toolbar input,.marketing-toolbar select{width:100%}
- .marketing-lists label{min-height:44px;font-size:15px}.marketing-lists input{min-height:24px;width:24px;height:24px}
+ .marketing-lists label{min-height:44px;font-size:15px;min-width:0;max-width:100%}.marketing-lists input{min-height:24px;width:24px;height:24px;flex:0 0 24px}
+ /* Imported filenames can be long unbroken list names. Let them wrap instead
+    of imposing their intrinsic width on every field in the dialog's grid. */
+ #marketingDialog{overflow-wrap:anywhere}
  .login-card{margin:5vh auto;max-width:100%}.login-link{min-height:44px;font-size:16px}
  .modal{padding:10px}.modal-card,#marketingDialog,#crm-detail{width:calc(100% - 20px);max-width:100%;max-height:90vh;max-height:90dvh;overflow:auto;padding:16px;overscroll-behavior:contain}
  .modal-card .drawer-head,dialog .drawer-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.marketing-preview{height:45vh;min-height:220px}
