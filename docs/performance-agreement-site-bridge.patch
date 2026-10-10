@@ -1,0 +1,55 @@
+diff --git a/app/api/agreement/route.ts b/app/api/agreement/route.ts
+index 6c9104d..da17c27 100644
+--- a/app/api/agreement/route.ts
++++ b/app/api/agreement/route.ts
+@@ -1,7 +1,9 @@
++import {ensureViews} from '@/lib/command-center.mjs';
+ import {context,reply} from '@/lib/server';
+ import {agreementText,digest} from '@/lib/agreements.mjs';
+ export async function POST(request:Request){try{
+  const {db,p,c}=await context(request);if(!c)return reply({error:'This private link is not valid. Please request a new link from Kingdom Vibe.'},404);
+  const record=await db.prepare('SELECT * FROM acceptances WHERE contract_id = ?').bind(c.id).first();
+- const text=agreementText(c);return reply({id:c.id,name:c.name,email:c.email,role:c.role||'vocalist',performanceFee:c.role==='band'?400:300,text,hash:await digest(text),record});
++ try{await ensureViews(db);const now=new Date().toISOString();await db.prepare('INSERT INTO agreement_views (contract_id,count,first_at,last_at) VALUES (?,1,?,?) ON CONFLICT(contract_id) DO UPDATE SET count=count+1,last_at=excluded.last_at').bind(c.id,now,now).run();}catch{console.error("Agreement view telemetry unavailable");}
++ const text=record?.agreement_text||agreementText(c);return reply({id:c.id,name:c.name,email:c.email,role:c.role||'vocalist',performanceFee:c.role==='band'?400:300,text,hash:record?.agreement_hash||await digest(text),record});
+ }catch{return reply({error:'We could not load your agreement. Please try again.'},503);}}
+diff --git a/app/api/command-center/route.ts b/app/api/command-center/route.ts
+new file mode 100644
+index 0000000..bd534b3
+--- /dev/null
++++ b/app/api/command-center/route.ts
+@@ -0,0 +1,12 @@
++import {env} from 'cloudflare:workers';
++import {settings,reply} from '@/lib/server';
++import {authorized,snapshot,ensureViews} from '@/lib/command-center.mjs';
++export async function GET(request:Request){try{
++ const e=env as unknown as {COMMAND_CENTER_SECRET_HASH?:string;AGREEMENT_EMAIL_IDS_JSON?:string};
++ if(!await authorized(request.headers.get('authorization'),e.COMMAND_CENTER_SECRET_HASH))return reply({error:'Unauthorized'},401);
++ const s=settings();await ensureViews(s.db);
++ const records=await s.db.prepare('SELECT * FROM acceptances ORDER BY accepted_at DESC').all();
++ const views=await s.db.prepare('SELECT * FROM agreement_views').all();
++ const tracking=await s.db.prepare('SELECT started_at FROM agreement_tracking WHERE id = 1').first<{started_at:string}>();
++ return reply(await snapshot(s.contracts,records.results,views.results,tracking?.started_at||null,JSON.parse(e.AGREEMENT_EMAIL_IDS_JSON||'{}')));
++}catch{return reply({error:'Unable to read agreement evidence.'},503);}}
+diff --git a/lib/command-center.mjs b/lib/command-center.mjs
+new file mode 100644
+index 0000000..6fd2333
+--- /dev/null
++++ b/lib/command-center.mjs
+@@ -0,0 +1,4 @@
++import {agreementText,digest} from './agreements.mjs';
++export async function authorized(header,expectedHash){if(!expectedHash||!header?.startsWith('Bearer '))return false;const actual=await digest(header.slice(7));let diff=actual.length^expectedHash.length;for(let i=0;i<actual.length;i++)diff|=actual.charCodeAt(i)^(expectedHash.charCodeAt(i)||0);return diff===0;}
++export async function snapshot(contracts,records,views,trackingSince,emailIds){return {contracts:await Promise.all(contracts.map(async c=>{const r=records.find(r=>r.contract_id===c.id),v=views.find(v=>v.contract_id===c.id),text=r?.agreement_text||agreementText(c);return {id:c.id,eventKey:'KV-LIVE-20261121',name:c.name,email:c.email,text,hash:r?.agreement_hash||await digest(text),version:c.role==='band'?3:2,views:trackingSince?{trackingSince,count:Number(v?.count||0),firstAt:v?.first_at||null,lastAt:v?.last_at||null}:null,delivery:emailIds[c.email.toLowerCase()]||null,acceptance:r?{fullName:r.full_name,email:r.email,acceptedAt:r.accepted_at,text:r.agreement_text,hash:r.agreement_hash,userAgent:r.user_agent,identityMethod:'private_link_and_typed_name'}:null}}))};}
++export async function ensureViews(db){await db.prepare('CREATE TABLE IF NOT EXISTS agreement_views (contract_id TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, first_at TEXT, last_at TEXT)').run();await db.prepare('CREATE TABLE IF NOT EXISTS agreement_tracking (id INTEGER PRIMARY KEY CHECK (id = 1), started_at TEXT NOT NULL)').run();await db.prepare('INSERT OR IGNORE INTO agreement_tracking (id, started_at) VALUES (1, ?)').bind(new Date().toISOString()).run();}
+diff --git a/tests/command-center.test.mjs b/tests/command-center.test.mjs
+new file mode 100644
+index 0000000..079ab33
+--- /dev/null
++++ b/tests/command-center.test.mjs
+@@ -0,0 +1,6 @@
++import test from 'node:test';import assert from 'node:assert/strict';
++import {authorized,snapshot} from '../lib/command-center.mjs';
++import {agreementText,digest} from '../lib/agreements.mjs';
++const c={id:'TEST',name:'Test Person',email:'test@example.com',address:'Test address',tokenHash:'never-expose',role:'band'};
++test('bridge fails closed for absent or incorrect bearer secret',async()=>{const hash=await digest('secret');assert.equal(await authorized(null,hash),false);assert.equal(await authorized('Bearer other',hash),false);assert.equal(await authorized('Bearer secret',hash),true);assert.equal(await authorized('Bearer secret',''),false)});
++test('snapshot preserves original acceptance text, omits tokens and distinguishes untracked views',async()=>{const text=agreementText(c),record={contract_id:c.id,full_name:c.name,email:c.email,agreement_text:text,agreement_hash:await digest(text),accepted_at:'2026-10-09T20:00:00Z',user_agent:'ua'};const p=await snapshot([c],[record],[],null,{});assert.equal(p.contracts[0].acceptance.text,text);assert.equal(p.contracts[0].views,null);assert.ok(!JSON.stringify(p).includes('never-expose'));assert.equal(p.contracts[0].acceptance.identityMethod,'private_link_and_typed_name');assert.equal(p.contracts[0].hash,record.agreement_hash)});
