@@ -7,14 +7,15 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check public/app.js && node --check public/dashboard.js && node --check public/checkin.js && node --check public/event.js",
-    "test:mobile": "node --test browser-tests/mobile-dashboard.spec.mjs"
+    "check": "node --check server.js && node --check public/app.js && node --check public/dashboard.js && node --check public/checkin.js && node --check public/event.js && node --check lib/marketing-engagement.js && node --check lib/marketing-routes.js && node --check public/marketing-dashboard.js",
+    "test:mobile": "node --test browser-tests/*.spec.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "qrcode": "^1.5.4",
-    "stripe": "^17.3.1"
+    "stripe": "^17.3.1",
+    "svix": "1.99.1"
   },
   "description": "KVN Live Tickets v4 upgraded multi-organizer ticketing platform",
   "devDependencies": {
