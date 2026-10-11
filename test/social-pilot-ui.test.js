@@ -29,6 +29,12 @@ test('real API-backed UI submits plain text, shows pending status and keeps owne
   assert.ok(!w.document.querySelector('#content').textContent.includes('A thoughtful synthetic community message.'));
   w.document.querySelector('[data-view=activity]').click();await wait(()=>w.document.querySelector('#content').textContent.includes('A thoughtful synthetic community message.'));
   assert.ok(w.document.querySelector('#content').textContent.includes('pending'));
+  const normalFetch=w.fetch;let releaseActivity;
+  w.fetch=async(path,options)=>{const response=await normalFetch(path,options);if(path==='/api/activity')await new Promise(r=>releaseActivity=r);return response;};
+  w.document.querySelector('[data-view=activity]').click();await wait(()=>releaseActivity);
+  w.document.querySelector('[data-view=feed]').click();await wait(()=>w.document.querySelectorAll('article.post').length===4);
+  releaseActivity();await new Promise(r=>setTimeout(r,30));
+  assert.equal(w.document.querySelectorAll('#content .review-card').length,0,'Late activity response must not overwrite the feed');
   w.document.querySelector('#guidelines').click();assert.ok(w.document.querySelector('#modal-body').textContent.includes('Negative sentiment alone is not a violation.'));
   w.document.querySelector('#close-modal').click();assert.equal(w.document.querySelector('#modal').open,false);
  }finally{w.close();await new Promise(r=>server.close(r));}
