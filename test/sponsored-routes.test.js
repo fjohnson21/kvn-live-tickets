@@ -22,7 +22,7 @@ test('sponsored claim, verified email, canonical VIP upgrade and check-in are is
  assert.equal((await post('/api/sponsored/allocate',{count:1,requestId:'unauth'})).status,401);
  const allocate=await post('/api/sponsored/allocate',{count:2,discipleId:'dist',requestId:'batch'},cookie);assert.equal(allocate.status,201);const invites=(await allocate.json()).invitations;
  const secret=new URL(invites[0].url).hash.split('=')[1];
- const req=await post('/api/sponsored/request',{invitationToken:secret,name:'Test Guest',email:'guest@example.test',phone:'9195550100',quantity:2});assert.equal(req.status,202,await req.text());
+ const req=await post('/api/sponsored/request',{invitationToken:secret,name:'Test Guest',email:'guest@example.test',phone:'9195550100',city:'Sanford',state:'NC',zip:'27330',quantity:2});assert.equal(req.status,202,await req.text());
  const read=()=>JSON.parse(fs.readFileSync(path.join(dir,'store.json'),'utf8'));assert.equal(read().orders.length,0);
  const mails=()=>fs.readFileSync(path.join(dir,'emails.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
  const verify=mails()[0].text.match(/#verify=([a-f0-9]+)/)[1];
