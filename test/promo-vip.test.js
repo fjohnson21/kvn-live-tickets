@@ -1,0 +1,6 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {promoVipProduct,validatePromoVipRequest,PROMO_VIP_OFFER} from '../lib/promo-vip.js';
+import {normalizeTicketCartItem} from '../lib/checkout.js';
+test('promo VIP is 39.99, preserves normal quantity/inventory and does not mutate regular pricing',()=>{const p={id:'kv-all-access-2026',type:'ticket',price:4900,inventory:600,sold:10,maxPerOrder:20,minPerOrder:1,quantityStep:1,earlyRelease:{enabled:true,discountAmount:1000},group:{enabled:true,discountValue:50,discountType:'percent'}};const offer=promoVipProduct(p);assert.equal(offer.price,3999);assert.equal(offer.maxPerOrder,20);assert.equal(offer.inventory,600);assert.equal(offer.earlyRelease.enabled,false);assert.equal(offer.group.enabled,false);assert.equal(p.price,4900);assert.equal(p.earlyRelease.enabled,true);});
+test('VIP promo validates product and prohibits stacking unrelated discounts',()=>{const e={slug:'kingdom-vibe-live-2026'};assert.doesNotThrow(()=>validatePromoVipRequest(e,{promotion:PROMO_VIP_OFFER,cart:[{id:'kv-all-access-2026',quantity:10}]}));assert.throws(()=>validatePromoVipRequest(e,{promotion:PROMO_VIP_OFFER,cart:[{id:'kv-kingdom-pass-2026',quantity:1}]}));assert.throws(()=>validatePromoVipRequest(e,{promotion:PROMO_VIP_OFFER,discountCode:'EXTRA',cart:[{id:'kv-all-access-2026',quantity:1}]}));});
