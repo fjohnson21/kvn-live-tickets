@@ -21,7 +21,10 @@ test('sponsored claim, verified email, canonical VIP upgrade and check-in are is
  const login=await post('/api/auth/owner',{email:'owner@example.test',password:'test-only-password-123'});assert.equal(login.status,200);const cookie=login.headers.get('set-cookie').split(';')[0];
  assert.equal((await post('/api/sponsored/allocate',{count:1,requestId:'unauth'})).status,401);
  const allocate=await post('/api/sponsored/allocate',{count:2,discipleId:'dist',requestId:'batch'},cookie);assert.equal(allocate.status,201);const invites=(await allocate.json()).invitations;
- const secret=new URL(invites[0].url).hash.split('=')[1];
+ const secret=new URL(invites[0].url).hash.split('=')[1];assert.ok(invites[0].url.startsWith('https://kvnlive.com/promo#invite='));
+ const preflight=await fetch(base+'/api/sponsored/request',{method:'OPTIONS',headers:{Origin:'https://kvnlive.com','Access-Control-Request-Method':'POST'}});assert.equal(preflight.status,204);assert.equal(preflight.headers.get('access-control-allow-origin'),'https://kvnlive.com');assert.equal(preflight.headers.get('access-control-allow-credentials'),null);
+ const branded=await fetch(base+'/api/sponsored/info',{method:'POST',headers:{Origin:'https://kvnlive.com','Content-Type':'application/json'},body:JSON.stringify({invitationToken:secret})});assert.equal(branded.status,200);
+ const hostile=await fetch(base+'/api/sponsored/info',{method:'POST',headers:{Origin:'https://untrusted.example','Content-Type':'application/json'},body:JSON.stringify({invitationToken:secret})});assert.equal(hostile.status,403);
  const req=await post('/api/sponsored/request',{invitationToken:secret,name:'Test Guest',email:'guest@example.test',phone:'9195550100',city:'Sanford',state:'NC',zip:'27330',quantity:2});assert.equal(req.status,202,await req.text());
  const read=()=>JSON.parse(fs.readFileSync(path.join(dir,'store.json'),'utf8'));assert.equal(read().orders.length,0);
  const mails=()=>fs.readFileSync(path.join(dir,'emails.jsonl'),'utf8').trim().split('\n').map(JSON.parse);

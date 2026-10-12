@@ -108,7 +108,7 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
 app.use(['/api/marketing/import','/api/marketing/clean-csv'],auth,owner,express.json({limit:'24mb'}));
 app.use(express.json({limit:'2mb'}));
 app.use('/performance-agreement.html',(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next()});
-app.use(['/sponsored.html','/sponsored-admin.html'],(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();});
+app.use(['/sponsored.html','/sponsored-admin.html'],(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://kvnlive.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();});
 app.use(express.static('public'));
 const uploadDir = process.env.UPLOAD_DIR || path.resolve('public/uploads');
 requireDir(uploadDir);
@@ -242,7 +242,15 @@ const runCrmSync=async()=>{
 };
 const initialMarketingStore=ensureMarketing(readStore());
 syncContacts(initialMarketingStore);writeStore(initialMarketingStore);
-registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,retryUpgrade:accessToken=>recoverSponsoredCheckout({readStore,writeStore,stripe,finalizeSession},accessToken)});
+// The branded promo page uses public token-based APIs; no cookie credentials cross origins.
+app.use(['/api/sponsored/info','/api/sponsored/request','/api/sponsored/confirm','/api/sponsored/pass','/api/sponsored/retry-upgrade','/api/create-checkout-session'],(req,res,next)=>{
+  if(req.headers.origin==='https://kvnlive.com'){
+    res.set({'Access-Control-Allow-Origin':'https://kvnlive.com','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type','Vary':'Origin'});
+    if(req.method==='OPTIONS')return res.sendStatus(204);
+  }
+  next();
+});
+registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,claimPageUrl:'https://kvnlive.com/promo',retryUpgrade:accessToken=>recoverSponsoredCheckout({readStore,writeStore,stripe,finalizeSession},accessToken)});
 registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
 registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl,engagement:marketingEngagement});
 registerCrmRoutes(app,{auth,owner,readStore,writeStore,id,sync:runCrmSync,configured:crmConfigured,baseUrl});
@@ -598,7 +606,7 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     const discipleCode=String(req.body.discipleCode||'').toUpperCase(),disciple=d.disciples.find(x=>(sponsoredClaim?x.id===sponsoredClaim.discipleId:x.code===discipleCode)&&x.status==='active'),orderId=id('ord'); const total=subtotal-promoDiscountAmount+taxAmount+fees.buyerKvnFee+fees.buyerMerchantFee;
     if(!stripe)return res.status(503).json({error:'Stripe is not configured. Add STRIPE_SECRET_KEY to accept payments.',preview:{subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,taxAmount,fees,total,orderId}});
     const expiration=checkoutExpiration(),checkoutExpiresAt=expiration.iso,expiresAt=expiration.unix;
-    const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:sponsoredClaim?`${baseUrl}/sponsored.html#pass=${sponsoredClaim.accessToken}`:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''},payment_intent_data:{metadata:{order_id:orderId,order_type:'event'}}};
+    const sessionConfig={mode:'payment',line_items:lineItems,discounts:[],expires_at:expiresAt,success_url:`${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,cancel_url:sponsoredClaim?`https://kvnlive.com/promo#pass=${sponsoredClaim.accessToken}`:`${baseUrl}/event.html?slug=${encodeURIComponent(e.slug)}&checkout=cancelled`,customer_email:customer.email,billing_address_collection:'required',phone_number_collection:{enabled:true},metadata:{order_id:orderId,event_id:e.id,discount_code:discountCode,buyer_name:customer.name,disciple_code:disciple?.code||''},payment_intent_data:{metadata:{order_id:orderId,order_type:'event'}}};
     const org=d.organizations.find(o=>o.id===e.organizationId),discipleSplit=false; if(org?.stripeAccountId){sessionConfig.payment_intent_data={...sessionConfig.payment_intent_data,application_fee_amount:Math.max(0,fees.kvnFee),transfer_data:{destination:org.stripeAccountId}};}
     d.orders.push({id:orderId,...(sponsoredClaim?{orderType:'sponsored_upgrade',sponsoredClaimId:sponsoredClaim.id,checkoutSessionConfig:sessionConfig}:{}),bundleWorkflowVersion:1,eventId:e.id,organizationId:e.organizationId,stripeSessionId:'',buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',checkoutExpiresAt,tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);
     try{
