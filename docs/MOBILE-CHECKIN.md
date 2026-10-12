@@ -50,10 +50,12 @@ For a local engine subset only, set `CHECKIN_BROWSERS=chromium` (or a
 comma-separated list). CI installs all three and runs the full browser suite.
 Do not skip a missing engine and describe it as a pass.
 
-The browser fixture starts a separate local server with a temporary, synthetic
+The browser fixture starts a separate local HTTPS server with a temporary, synthetic
 store and explicitly allowlisted environment; no `.env`, payment keys, email
 keys or sync secrets are inherited. Outbound browser requests are blocked.
-Synthetic owners authenticate through the real endpoint, then their temporary
+An ephemeral self-signed certificate (generated with OpenSSL) preserves real
+Secure-cookie behavior across engines; test contexts trust only this disposable
+TLS setup through Playwright's ignoreHTTPSErrors option. Synthetic owners authenticate through the real endpoint, then their temporary
 user records become staff to test check-in and organizer permissions. Test
 mutations happen only under the fixture's temporary directory. Never substitute
 a production URL, copy production data, or use real attendee tickets.

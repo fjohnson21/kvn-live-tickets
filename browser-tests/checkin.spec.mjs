@@ -12,7 +12,8 @@ function ticket(f,code){return JSON.parse(fs.readFileSync(f.dir+'/store.json')).
 async function setup(t,engine,width=390){
  const f=await fixture({checkin:true});t.after(()=>f.close());
  const browser=await engines[engine].launch({timeout:15000});t.after(()=>browser.close());
- const context=await browser.newContext({viewport:{width,height:844},hasTouch:true});
+ const context=await browser.newContext({viewport:{width,height:844},hasTouch:true,ignoreHTTPSErrors:true});
+ context.setDefaultTimeout(6000);
  const errors=[],external=[];await context.route('**/*',r=>{if(new URL(r.request().url()).origin!==f.base){external.push(r.request().url());return r.abort()}return r.continue()});
  const page=await context.newPage();page.setDefaultTimeout(6000);page.on('pageerror',e=>errors.push(e.message));
  const auth=await context.request.post(f.base+'/api/auth/owner',{data:{email:'owner@example.test',password:'synthetic mobile password'}});assert.equal(auth.status(),200);
@@ -48,11 +49,15 @@ async function camera(page,mode='fallback'){
  },{qr,mode});
 }
 async function manual(page,code){await page.locator('#code').fill(code);await page.locator('#form button').click()}
-async function result(page,text){await page.locator('#result').filter({hasText:text}).waitFor()}
+async function result(page,text){
+ try{await page.locator('#result').filter({hasText:text}).waitFor()}
+ catch(error){throw Error(`${error.message}\nVisible result: ${await page.locator('#result').textContent()}\nCamera: ${await page.locator('#cameraStatus').textContent()}`)}
+}
 
 for(const engine of selected){
  for(const width of [320,390])test(`${engine}: real fallback QR, staff admission, duplicate and safe phone result at ${width}px`,async t=>{
   const {f,page}=await setup(t,engine,width);await camera(page);await page.goto(f.base+'/checkin.html');
+  assert.equal(await page.evaluate(async()=> (await fetch('/api/me')).status),200,'browser must send its secure session over HTTPS');
   let posts=0;page.on('request',r=>{if(r.url().endsWith('/api/checkin'))posts++});
   await page.locator('#startCamera').click();await result(page,'CHECKED IN');assert.equal(ticket(f,'KVN-CAMERA01').checkedIn,true);const first=ticket(f,'KVN-CAMERA01').checkedInAt;
   assert.equal(await page.locator('#result img').count(),0);assert.equal(await page.evaluate(()=>window.checkinXss),undefined);
