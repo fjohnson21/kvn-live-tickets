@@ -9,12 +9,17 @@ import {createEngagementStore} from '../lib/marketing-engagement.js';
 import {ensureMarketing,upsertContact} from '../lib/marketing.js';
 
 // A disposable, synthetic database only. Never copy the production store or .env.
-export async function fixture({engagementReports=false}={}){
+export async function fixture({engagementReports=false,checkin=false}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'kvn-mobile-'));
  const socket=createServer();socket.listen(0,'127.0.0.1');await once(socket,'listening');const port=socket.address().port;await new Promise(r=>socket.close(r));
  const base=`http://localhost:${port}`;
  fs.symlinkSync(path.resolve('public'),path.join(dir,'public'),'dir');
  const store={users:[{id:'mobile-owner',name:'Mobile Test Owner',email:'owner@example.test',role:'owner'}],organizations:[],events:[],orders:[],settings:{},crmRecords:[{id:'mobile-crm',sourceTable:'partner_leads',sourceId:'synthetic',sourceSystem:'kvnlive',category:'Vendor',submittedContact:{name:'Mobile Test Contact',email:'mobile@example.test',organization:'Synthetic Mobile Vendor'},correctedContact:{},consent:{email:null},receivedAt:new Date().toISOString(),workflowStatus:'New',partnerStage:'Inquiry',followUpDate:null,revision:1}]};
+ if(checkin){
+  const hostile='<img src=x onerror="window.checkinXss=1">';
+  store.events.push({id:'scan-event',slug:'synthetic-checkin',organizationId:'scan-org',title:hostile,products:[]});
+  store.orders.push({id:'scan-order',eventId:'scan-event',status:'paid',buyerName:hostile,tickets:['KVN-CAMERA01','KVN-MANUAL02','KVN-NATIVE03'].map(code=>({code,ticketName:'Synthetic '+hostile,holderName:hostile,checkedIn:false}))});
+ }
  ensureMarketing(store);store.marketing.lists.push({id:'long-list',name:'LEGACY_FEST_TOUR_JEKALYN_CARR_Attendees_2103658948893_20261008_000928_065'});upsertContact(store,{email:'mobile@example.test',name:'Mobile Test Contact',listIds:['market'],permission:'unknown'});
  store.marketing.campaigns.push({id:'mobile-draft',revision:1,status:'draft',subject:'Synthetic mobile preview',body:'Test only. Never send.',listIds:['market'],recipients:[],createdAt:new Date().toISOString()});
  if(engagementReports){
