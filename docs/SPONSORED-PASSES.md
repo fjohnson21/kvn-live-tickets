@@ -1,7 +1,12 @@
+## Public giveaway update
+The public entry is https://kvnlive.com/promo. No individual invitation is needed. Active Disciples share /promo#ref=CODE; the resolved distributor is pinned to the pending claim and credited at verification and on paid upgrades. Owner reporting exposes these share links.
+
+500 total general-admission passes; maximum two per verified claim. Pending email requests do not reserve public inventory. Verification rechecks both the total cap and any optional owner-reserved inventory atomically. Name, email, phone, city, state and ZIP are required; interests are optional multi-select and never imply enrollment or marketing consent. Existing claimed identities and orders are preserved. No production passes or invitations are created for testing.
+
 # KAP sponsored KV Live passes
 
 ## What this adds
-A total of 250 KAP complimentary general-admission passes without apparel. Each invitation can be claimed once for one or two passes, never more than two. Name, verified email, and phone are mandatory for each claim. Owner access: Command Center → Disciples → KAP Sponsored Passes (`/sponsored-admin.html`). No allocation or ticket is created on startup or deployment.
+A total of 500 KAP complimentary general-admission passes without apparel. Each invitation can be claimed once for one or two passes, never more than two. Name, verified email, and phone are mandatory for each claim. Owner access: Command Center → Disciples → KAP Sponsored Passes (`/sponsored-admin.html`). No allocation or ticket is created on startup or deployment.
 
 Owner selects an active distributing Disciple (or KAP direct), sets a quantity, and creates individual invitation links. Each link should be shared with one intended claimant. Two-pass invitations reserve two slots; if only one is claimed, the unused slot is released for further allocation. Creation reserves campaign allocation but does not send messages. “Mark sent” records an operator's sharing action; it is not provider delivery evidence.
 
