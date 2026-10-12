@@ -66,3 +66,45 @@ test('does nothing when the target event is absent', () => {
  assert.equal(store.events[0].products.some(p=>p.id==='kv-community-2026'),false);
  assert.equal(JSON.stringify({orders:store.orders,tickets:store.tickets}),records);
  });
+
+test('publishes the approved national launch program without expanding standard admission', () => {
+  const store = fixture();
+  synchronizeKvnLive2026Event(store);
+  const event = store.events[0];
+  const details = event.layout.find(block => block.id === 'kv-details').body;
+  assert.match(event.description, /national launch/i);
+  for (const phrase of ['2:30 PM', 'Kingdom Market Expo', 'Vendor Mall', 'Food Hall Experience', 'KV Trailblazer Awards', 'Kingdom Vibe Technology Release', '5:00 PM', 'Pre-Worship', '6:00 PM', 'KV Live Worship Experience', 'Ministry Partners']) {
+    assert.ok(details.includes(phrase), phrase);
+  }
+  assert.doesNotMatch(JSON.stringify(event), /launch party|PreWorship|KB Live/i);
+  const [vip, standard] = event.products;
+  assert.match(vip.description, /2:30 PM.*Kingdom Market Expo/);
+  assert.match(vip.description, /priority seating/);
+  assert.match(standard.description, /5:00 PM Pre-Worship and seating/);
+  assert.doesNotMatch(standard.description, /2:30 PM|priority seating|Expo/);
+  assert.match(event.layout.find(block => block.id === 'kv-tickets').body, /Kingdom VIP/);
+});
+
+test('approved descriptions flow into checkout while retaining commercial and attribution records', async () => {
+  const { normalizeTicketCartItem } = await import('../lib/checkout.js');
+  const store = fixture();
+  synchronizeKvnLive2026Event(store);
+  store.events[0].products[0].sold = 199;
+  store.events[0].products[1].sold = 201;
+  store.orders = [{ id: 'paid-order', discipleCode: 'KEEP', status: 'paid', amountTotal: 4900 }];
+  store.tickets = [{ id: 'issued-ticket', orderId: 'paid-order' }];
+  store.disciples = [{ id: 'disciple', code: 'KEEP', commissionPercent: 10 }];
+  const records = structuredClone({ orders: store.orders, tickets: store.tickets, disciples: store.disciples });
+  const commercial = products => products.map(({ description, ...settings }) => settings);
+  const before = commercial(store.events[0].products);
+  store.events[0].description = 'outdated';
+  assert.equal(synchronizeKvnLive2026Event(store), true);
+  assert.deepEqual(commercial(store.events[0].products), before);
+  assert.deepEqual({ orders: store.orders, tickets: store.tickets, disciples: store.disciples }, records);
+  for (const product of store.events[0].products) {
+    const checkout = normalizeTicketCartItem(product, { quantity: 1, ticketSelections: [{ apparelSelected: true, apparelSize: 'M' }] });
+    assert.equal(checkout.ticketLineItem.description, product.description);
+    assert.match(checkout.ticketLineItem.description, /Ministry Partners/);
+    assert.doesNotMatch(checkout.ticketLineItem.description, /launch party/i);
+  }
+});
