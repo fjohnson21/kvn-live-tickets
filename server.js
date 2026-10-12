@@ -39,7 +39,7 @@ import { createCommunityBonus,reverseCommunityBonusForCommission } from './lib/d
 import { awardLeaderBundle,inviteMemberBundle } from './lib/disciple-bundles.js';
 import { publicShopCatalog } from './lib/shop-catalog.js';
 import { reserveShopInventory } from './lib/shop-inventory.js';
-import { buildShopCheckoutSession, normalizeShopCart, ShopCheckoutError } from './lib/shop-checkout.js';
+import { buildShopCheckoutSession, normalizeShopCart, normalizeSponsoredShirtCart, ShopCheckoutError } from './lib/shop-checkout.js';
 import { expireShopSession, finalizeShopSession, refundShopOrder } from './lib/shop-finalize.js';
 import { deliverShopConfirmation } from './lib/shop-email.js';
 import { shopMetrics, shopOrdersCsv } from './lib/shop-report.js';
@@ -183,17 +183,18 @@ app.get('/api/donations/session',async(req,res)=>{
   }catch(error){res.status(400).json({error:'Unable to verify contribution.'});}
 });
 
+app.use('/api/shop/checkout',(req,res,next)=>{if(req.headers.origin==='https://kvnlive.com'){res.set({'Access-Control-Allow-Origin':'https://kvnlive.com','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type','Vary':'Origin'});if(req.method==='OPTIONS')return res.sendStatus(204);}next();});
 app.post('/api/shop/checkout',async(req,res)=>{
   try{
     const email=String(req.body.email||'').trim().toLowerCase();
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:'Enter a valid email address.'});
-    const d=readStore(),normalized=normalizeShopCart(d,req.body.cart);
+    const d=readStore(),normalized=req.body.sponsoredClaimToken?normalizeSponsoredShirtCart(d,req.body):normalizeShopCart(d,req.body.cart);
     if(!stripe) return res.status(503).json({error:'Apparel checkout is not configured.'});
-    const discipleCode=String(req.body.discipleCode||'').trim().toUpperCase();
+    const discipleCode=normalized.claim?'':String(req.body.discipleCode||'').trim().toUpperCase();
     const disciple=d.disciples.find(item=>item.code===discipleCode&&item.status==='active');
     const orderId=id('sho');
     const reservation=reserveShopInventory(d,{orderId,lines:normalized.lines});
-    const order={id:orderId,orderType:'apparel',status:'pending',buyerEmail:email,items:normalized.lines,
+    const order={id:orderId,orderType:'apparel',sponsoredClaimId:normalized.claim?.id||'',sponsoredDistributorId:normalized.claim?.discipleId||'',offer:normalized.claim?'kap-shirt-2999':'',status:'pending',buyerEmail:email,items:normalized.lines,
       merchandiseSubtotal:normalized.totals.merchandiseSubtotal,shippingAmount:normalized.totals.shippingAmount,
       amountSubtotal:normalized.totals.merchandiseSubtotal,reservationId:reservation.id,checkoutExpiresAt:reservation.expiresAt,
       discipleId:disciple?.id||'',discipleCode:disciple?.code||'',stripeSessionId:'',createdAt:new Date().toISOString()};
