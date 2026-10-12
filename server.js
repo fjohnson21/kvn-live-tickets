@@ -252,7 +252,7 @@ app.use(['/api/sponsored/info','/api/sponsored/request','/api/sponsored/confirm'
   }
   next();
 });
-registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,claimPageUrl:'https://kvnlive.com/promo',launchPolicy:{launchAt:'2026-10-12T17:00:00Z',testTokenHash:'e4a968a617e4075593410bc93871c0c0fca8ca3472d1451f1418a45500b639bc'},retryUpgrade:accessToken=>recoverSponsoredCheckout({readStore,writeStore,stripe,finalizeSession},accessToken)});
+registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,claimPageUrl:'https://kvnlive.com/promo',launchPolicy:{launchAt:'2026-10-12T20:00:00Z',testTokenHash:'e4a968a617e4075593410bc93871c0c0fca8ca3472d1451f1418a45500b639bc'},retryUpgrade:accessToken=>recoverSponsoredCheckout({readStore,writeStore,stripe,finalizeSession},accessToken)});
 registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
 registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl,engagement:marketingEngagement});
 registerCrmRoutes(app,{auth,owner,readStore,writeStore,id,sync:runCrmSync,configured:crmConfigured,baseUrl});
