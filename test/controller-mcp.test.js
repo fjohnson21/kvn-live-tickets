@@ -101,6 +101,9 @@ test('MCP requires owner authentication and Controller switch, and blocks send w
   const readTool = listed.result.tools.find(tool => tool.name === 'kvn_campaigns');
   assert.deepEqual(sendingTool.securitySchemes, [{ type: 'oauth2', scopes: ['kvn:read','kvn:send'] }]);
   assert.deepEqual(readTool.securitySchemes, [{ type: 'oauth2', scopes: ['kvn:read'] }]);
+  const audience = await (await req('tools/call', { name: 'kvn_audiences', arguments: {} })).json();
+  assert.equal(audience.result.structuredContent.suppressionVerified, true);
+  assert.equal(audience.result.structuredContent.lists.find(x => x.id === 'ticket-buyers').eligibleAfterProviderSuppression, 1);
   const pref = await (await req('tools/call', { name: 'kvn_campaign_preflight', arguments: { campaignId: 'cmp-approved' } })).json();
   const p = pref.result.structuredContent;
   assert.equal(p.eligibleRecipientCount, 1);
