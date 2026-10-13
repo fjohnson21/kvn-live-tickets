@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import {registerSponsoredRoutes} from '../lib/sponsored-routes.js';
+import {beginClaim} from '../lib/sponsored-passes.js';
+test('owner recovery requires authentication, issues once despite mail failure, and exposes pending guests',async t=>{
+ let store={events:[{id:'ev',slug:'kingdom-vibe-live-2026',status:'published',organizationId:'org',products:[]}],orders:[],disciples:[]};
+ const pending=beginClaim(store,{name:'Pending',email:'pending@example.test',phone:'9195550111',city:'Sanford',state:'NC',zip:'27330',interests:['attend']});
+ const app=express();app.use(express.json());const auth=(req,res,next)=>{if(!['owner','staff'].includes(req.headers.authorization))return res.sendStatus(401);req.user={id:req.headers.authorization,role:req.headers.authorization};next();};
+ const mails=[];let rejectMail=false,releaseOriginal=null;
+ registerSponsoredRoutes(app,{auth,owner:(req,res,next)=>req.user.role==='owner'?next():res.sendStatus(403),readStore:()=>structuredClone(store),writeStore:s=>{store=structuredClone(s)},baseUrl:'http://localhost',claimPageUrl:'https://kvnlive.com/promo',sendMail:async m=>{mails.push(m);const messageId='test_email_'+mails.length;if(m.to==='overlap@example.test'&&m.text.includes('KAP has invited'))await new Promise(r=>{releaseOriginal=r});if(rejectMail)throw Error('Provider failed');return {id:messageId};}});
+ const server=app.listen(0);t.after(()=>server.close());await new Promise(r=>server.on('listening',r));const base='http://127.0.0.1:'+server.address().port;
+ const post=(route,body,authenticated=true)=>fetch(base+'/api/sponsored/'+route,{method:'POST',headers:{'Content-Type':'application/json',...(authenticated?{authorization:'owner'}:{})},body:JSON.stringify(body)});
+ assert.equal((await post('verification/resend',{claimId:pending.claimId},false)).status,401);
+ assert.equal((await post('issue',{name:'Guest'},false)).status,401);
+ for(const route of ['issue','verification/resend'])assert.equal((await fetch(base+'/api/sponsored/'+route,{method:'POST',headers:{'Content-Type':'application/json',authorization:'staff'},body:'{}'})).status,403);
+ assert.equal((await post('verification/resend',{claimId:pending.claimId})).status,200);
+ const report=await (await fetch(base+'/api/sponsored/admin',{headers:{authorization:'owner'}})).json();assert.equal(report.pendingVerifications[0].email,'pending@example.test');assert.equal(report.pendingVerifications[0].verificationEmail.status,'accepted');assert.equal(report.pendingVerifications[0].verificationHash,undefined);
+ const originalSend=post('request',{name:'Overlap',email:'overlap@example.test',phone:'9195550114',city:'Sanford',state:'NC',zip:'27330',interests:['attend']},false);
+ for(let i=0;i<100&&!releaseOriginal;i++)await new Promise(r=>setTimeout(r,1));assert.ok(releaseOriginal);const overlap=store.sponsoredClaims.find(c=>c.email==='overlap@example.test');assert.equal((await post('verification/resend',{claimId:overlap.id})).status,200);const refreshedId=store.sponsoredClaims.find(c=>c.id===overlap.id).verificationEmail.messageId;releaseOriginal();assert.equal((await originalSend).status,202);assert.equal(store.sponsoredClaims.find(c=>c.id===overlap.id).verificationEmail.messageId,refreshedId);
+ rejectMail=true;const input={name:'Guest',email:'guest@example.test',phone:'9195550112',quantity:2,requestId:'manual-test'};
+ const issued=await post('issue',input);assert.equal(issued.status,201);const data=await issued.json();assert.equal(data.emailStatus,'failed');assert.match(data.passUrl,/https:\/\/kvnlive.com\/promo#pass=/);assert.equal(data.tickets.length,2);assert.equal(store.orders.length,1);assert.equal(store.orders[0].confirmationEmail.status,'failed');assert.equal((await post('issue',input)).status,200);assert.equal(store.orders.length,1);
+ const rejected=await post('request',{name:'Retry Guest',email:'retry@example.test',phone:'9195550113',city:'Sanford',state:'NC',zip:'27330',interests:['attend']},false);assert.equal(rejected.status,502);assert.ok(store.sponsoredClaims.find(c=>c.email==='retry@example.test'&&c.verificationEmail?.status==='failed'));
+ const claims=await (await fetch(base+'/api/sponsored/admin',{headers:{authorization:'owner'}})).json();assert.match(claims.claims[0].passUrl,/#pass=/);
+});
