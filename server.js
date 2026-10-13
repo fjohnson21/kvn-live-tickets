@@ -1,3 +1,6 @@
+import {reservesTicketInventory} from './lib/checkout.js';
+import {createCustomerCheckout} from './lib/customer-checkout-routes.js';
+import {checkoutResponse} from './lib/embedded-checkout.js';
 import {PROMO_VIP_OFFER,promoVipProduct,validatePromoVipRequest} from './lib/promo-vip.js';
 import {recoverSponsoredCheckout} from './lib/sponsored-checkout.js';
 import {registerSponsoredRoutes} from './lib/sponsored-routes.js';
@@ -109,6 +112,8 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
 
 app.use(['/api/marketing/import','/api/marketing/clean-csv'],auth,owner,express.json({limit:'24mb'}));
 app.use(express.json({limit:'2mb'}));
+const customerCheckout=createCustomerCheckout({readStore,writeStore,stripe,finalizers:{ticket:finalizeSession,donation:finalizeDonationSession,apparel:async session=>{const d=readStore();await finalizeShopSession(d,session,{id,queueConfirmation:async order=>{writeStore(d);await deliverShopConfirmation({order,apiKey:process.env.RESEND_API_KEY,from:process.env.SHOP_EMAIL_FROM||'Kingdom Vibe Shop <shop@tickets.kvnlive.com>'});persistShopEmail(order);}});}}});
+customerCheckout.register(app);
 app.use('/performance-agreement.html',(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next()});
 app.use(['/sponsored.html','/sponsored-admin.html'],(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://kvnlive.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();});
 app.use(express.static('public'));
@@ -142,7 +147,7 @@ async function finalizeDonationSession(session){
   return donation;
 }
 
-app.post('/api/donations/checkout',async(req,res)=>{
+app.post('/api/donations/checkout',customerCheckout.middleware('donation'),async(req,res)=>{
   try{
     const amount=Math.round(Number(req.body.amount)||0);
     const email=String(req.body.email||'').trim().toLowerCase();
@@ -163,10 +168,10 @@ app.post('/api/donations/checkout',async(req,res)=>{
       payment_intent_data:{metadata:{order_type:'donation',donation_id:donation.id,program:'acts-2-44',campaign}},
       ...(email?{customer_email:email}:{})
     };
-    const session=await stripe.checkout.sessions.create(config);
+    const session=await customerCheckout.createSession(req,donation,config,'donation');
     const latest=readStore(),current=latest.donations.find(item=>item.id===donation.id);
     if(current){current.stripeSessionId=session.id;current.updatedAt=new Date().toISOString();writeStore(latest);}
-    res.status(201).json({url:session.url,donationId:donation.id});
+    res.status(201).json({...checkoutResponse(session),donationId:donation.id});
   }catch(error){
     console.error('Donation checkout error',error);
     res.status(500).json({error:'Unable to start Acts 2:44 contribution checkout.'});
@@ -186,7 +191,7 @@ app.get('/api/donations/session',async(req,res)=>{
 });
 
 app.use('/api/shop/checkout',(req,res,next)=>{if(req.headers.origin==='https://kvnlive.com'){res.set({'Access-Control-Allow-Origin':'https://kvnlive.com','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type','Vary':'Origin'});if(req.method==='OPTIONS')return res.sendStatus(204);}next();});
-app.post('/api/shop/checkout',async(req,res)=>{
+app.post('/api/shop/checkout',customerCheckout.middleware('apparel'),async(req,res)=>{
   try{
     const email=String(req.body.email||'').trim().toLowerCase();
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:'Enter a valid email address.'});
@@ -204,14 +209,14 @@ app.post('/api/shop/checkout',async(req,res)=>{
     try{
       const config=buildShopCheckoutSession(order,process.env.SHOP_ORIGIN||'https://www.kvnlive.com');
       config.expires_at=Math.floor(new Date(reservation.expiresAt).getTime()/1000);
-      const session=await stripe.checkout.sessions.create(config);
+      const session=await customerCheckout.createSession(req,order,config,'apparel');
       const latest=readStore(),pending=latest.shopOrders.find(item=>item.id===orderId);
       if(pending){pending.stripeSessionId=session.id;pending.checkoutExpiresAt=session.expires_at?new Date(session.expires_at*1000).toISOString():pending.checkoutExpiresAt;writeStore(latest);}
-      res.status(201).json({url:session.url,orderId});
+      res.status(201).json({...checkoutResponse(session),orderId});
     }catch(error){
       const latest=readStore(),pending=latest.shopOrders.find(item=>item.id===orderId),held=latest.shopReservations.find(item=>item.id===reservation.id);
       if(pending){pending.status='checkout_failed';pending.checkoutError=String(error.message||error);pending.updatedAt=new Date().toISOString();}
-      if(held&&held.status==='pending'){held.status='released';held.releasedAt=new Date().toISOString();}
+      if(req.body.checkoutMode!=='embedded'&&held&&held.status==='pending'){held.status='released';held.releasedAt=new Date().toISOString();}
       writeStore(latest);
       if(/tax/i.test(String(error.message||''))) return res.status(503).json({error:'Apparel checkout tax configuration requires attention.'});
       throw error;
@@ -573,7 +578,7 @@ app.get('/api/disciples/export/commissions.csv',auth,owner,(req,res)=>{const d=r
 app.get('/api/disciples/export/payouts.csv',auth,owner,(req,res)=>{const d=readStore();sendDiscipleCsv(res,'kvn-disciple-payouts.csv',disciplePayoutsCsv(d.disciplePayouts,d.disciples));});
 app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const disc={id:id('disc'),eventId:e.id,code:String(req.body.code||'').toUpperCase().replace(/\s/g,''),type:req.body.type==='fixed'?'fixed':'percent',value:Math.max(0,Number(req.body.value)||0),active:true,maxUses:Math.max(1,Number(req.body.maxUses)||100),uses:0}; if(!disc.code) return res.status(400).json({error:'Code required.'}); d.discounts.push(disc); writeStore(d); res.status(201).json({discount:disc}); });
 
-app.post('/api/create-checkout-session', async (req,res)=>{
+app.post('/api/create-checkout-session', customerCheckout.middleware('ticket'), async (req,res)=>{
   try{
     const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId && x.status==='published'); if(!e) return res.status(404).json({error:'Event is not available for checkout.'});
     let sponsoredClaim=null;
@@ -586,7 +591,7 @@ app.post('/api/create-checkout-session', async (req,res)=>{
       const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct) continue; const canonical=canonicalPass(e,sourceProduct),p=(req.body.promotion===PROMO_VIP_OFFER||sponsoredClaim)&&canonical.id==='kv-all-access-2026'?promoVipProduct(canonical):canonical; if(p.salesEnd&&Date.now()>=Date.parse(p.salesEnd))return res.status(400).json({error:'The Community Pass release has ended. Please choose an available bundle.'});
       if(p.type==='ticket'){
         // Reserve all pending ticket units, including sponsored upgrades, before calling Stripe.
-        const pending=d.orders.filter(o=>o.eventId===e.id&&(o.orderType==='sponsored_upgrade'?['pending','checkout_failed'].includes(o.status):o.status==='pending'&&Date.parse(o.checkoutExpiresAt)>Date.now())).flatMap(o=>o.items||[]).filter(i=>i.productId===p.id).reduce((n,i)=>n+Number(i.quantity||0),0);
+        const pending=d.orders.filter(o=>o.eventId===e.id&&reservesTicketInventory(o)).flatMap(o=>o.items||[]).filter(i=>i.productId===p.id).reduce((n,i)=>n+Number(i.quantity||0),0);
         const inCart=normalized.filter(i=>i.productId===p.id).reduce((n,i)=>n+i.quantity,0);
         if(Number(item.quantity)+pending+inCart>Number(p.inventory)-Number(p.sold))return res.status(409).json({error:'This bundle is reserved or sold out. Please try again later.'});
         let result;try{result=normalizeTicketCartItem(p,item);if(p.earlyRelease?.enabled)result=applyEarlyReleasePricing(result,p,pendingEarlyReleaseUnits(d.orders,e.id,p.id)+normalized.filter(x=>x.productId===p.id).reduce((n,x)=>n+Number(x.earlyReleaseQuantity||0),0));}catch(err){if(err.statusCode)return res.status(err.statusCode).json({error:err.message});throw err;}
@@ -616,7 +621,7 @@ app.post('/api/create-checkout-session', async (req,res)=>{
     d.orders.push({id:orderId,...(sponsoredClaim?{orderType:'sponsored_upgrade',sponsoredClaimId:sponsoredClaim.id,checkoutSessionConfig:sessionConfig}:{}),promotion:(req.body.promotion===PROMO_VIP_OFFER||sponsoredClaim)?PROMO_VIP_OFFER:'',bundleWorkflowVersion:1,eventId:e.id,organizationId:e.organizationId,stripeSessionId:'',buyerName:customer.name,buyerEmail:customer.email,customer,cartId:req.body.cartId||'',items:normalized,amountSubtotal:subtotal,groupDiscountAmount,earlyReleaseDiscountAmount,promoDiscountAmount,discountAmount:promoDiscountAmount,taxAmount,feeBreakdown:fees,amountTotal:total,status:'pending',checkoutExpiresAt,tickets:[],discipleId:disciple?.id||'',discipleCode:disciple?.code||'',discipleSplitMode:discipleSplit,createdAt:new Date().toISOString()});writeStore(d);
     try{
       if(promoDiscountAmount>0){const coupon=await stripe.coupons.create({amount_off:promoDiscountAmount,currency:'usd',duration:'once',name:`${discountCode} discount`});if(coupon)sessionConfig.discounts=[{coupon:coupon.id}];}
-      const session=await stripe.checkout.sessions.create(sessionConfig,sponsoredClaim?{idempotencyKey:`sponsored-upgrade:${orderId}`}:{ }),latest=readStore(),pending=latest.orders.find(x=>x.id===orderId);if(pending){pending.stripeSessionId=session.id;if(pending.orderType==='sponsored_upgrade')pending.stripeCheckoutUrl=session.url;pending.checkoutExpiresAt=session.expires_at?new Date(session.expires_at*1000).toISOString():checkoutExpiresAt;writeStore(latest);}res.json({url:session.url});
+      const session=await customerCheckout.createSession(req,{id:orderId},sessionConfig,'ticket',sponsoredClaim?{idempotencyKey:`sponsored-upgrade:${orderId}`}:{ }),latest=readStore(),pending=latest.orders.find(x=>x.id===orderId);if(pending){pending.stripeSessionId=session.id;if(pending.orderType==='sponsored_upgrade')pending.stripeCheckoutUrl=session.url;pending.checkoutExpiresAt=session.expires_at?new Date(session.expires_at*1000).toISOString():checkoutExpiresAt;writeStore(latest);}res.json(checkoutResponse(session));
     }catch(err){const latest=readStore(),pending=latest.orders.find(x=>x.id===orderId);if(pending&&pending.status==='pending'){pending.status='checkout_failed';pending.checkoutError=String(err.message||err);pending.updatedAt=new Date().toISOString();writeStore(latest);}throw err;}
   }catch(err){console.error(err);res.status(500).json({error:err.message||'Unable to start checkout.'});}
 });
