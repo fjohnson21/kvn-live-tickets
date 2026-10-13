@@ -55,7 +55,7 @@ for(const viewport of [{width:320,height:568},{width:390,height:844},{width:430,
     const size=await page.locator('[name=list][value=long-list]').boundingBox();assert.ok(size.width>=24&&size.height>=24,'list checkbox remains tappable');
     await page.locator('#mcEmail').fill('added@example.test');await page.locator('#mcName').fill('Added on phone');await page.locator('[name=list][value=long-list]').check();await page.locator('#mContactForm button').tap();await page.locator('#marketingNotice').filter({hasText:'Contact saved'}).waitFor();
    }else if(button==='mCompose'){
-    await page.locator('#mdSubject').fill('Draft created on phone');await page.locator('#mdBody').fill('Synthetic draft only.');await page.locator('[name=list][value=long-list]').check();await page.locator('#mComposeForm button').tap();await page.locator('#mPreviewFrame').waitFor();await fits(page,'#marketingDialog');await page.locator('#marketingClose').tap();
+    await page.locator('#mdSubject').fill('Draft created on phone');await page.locator('#mdBody').fill('Synthetic draft only.');await page.locator('[name=list][value=long-list]').check();await page.getByRole('button',{name:'Save Draft & Preview',exact:true}).tap();await page.locator('#mPreviewFrame').waitFor();await fits(page,'#marketingDialog');await page.locator('#marketingClose').tap();
    }else await page.locator('#marketingClose').tap();
   }
   // Edit only the disposable contact. Production records are never loaded.
