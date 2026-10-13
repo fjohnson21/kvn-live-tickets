@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  controllerOverview, controllerAudiences, controllerCampaigns, registerControllerRoutes
+  controllerOverview, controllerAudiences, controllerCampaigns, controllerAccessState, setControllerAccess, registerControllerRoutes
 } from '../lib/controller-routes.js';
 
 const fixture = () => ({
@@ -66,16 +66,19 @@ test('controller routes require both existing session authentication and owner a
   const routes = [];
   const auth = () => {};
   const owner = () => {};
-  const app = { get: (...args) => routes.push(args) };
-  registerControllerRoutes(app, { auth, owner, readStore: fixture });
+  const app = { get: (...args) => routes.push(args), put: (...args) => routes.push(args) };
+  registerControllerRoutes(app, { auth, owner, readStore: fixture, writeStore: () => {}, baseUrl: 'https://kvn.example' });
   assert.deepEqual(routes.map(route => route[0]), [
+    '/api/controller/v1/access', '/api/controller/v1/access',
     '/api/controller/v1/overview', '/api/controller/v1/audiences', '/api/controller/v1/campaigns'
   ]);
   for (const route of routes) {
     assert.strictEqual(route[1], auth);
     assert.strictEqual(route[2], owner);
-    assert.equal(route.length, 5);
   }
+  assert.equal(routes[0].length, 5);
+  assert.equal(routes[1].length, 6);
+  for (const route of routes.slice(2)) assert.equal(route.length, 6);
   assert.throws(() => registerControllerRoutes(app, { auth, readStore: fixture }), /Owner authentication/);
 });
 
@@ -86,4 +89,109 @@ test('controller routes never mutate the source store', () => {
   controllerAudiences(data, new Set());
   controllerCampaigns(data);
   assert.equal(JSON.stringify(data), original);
+});
+
+const response = () => ({
+  statusCode: 200,
+  status(code) { this.statusCode = code; return this; },
+  json(body) { this.body = body; return this; },
+  set() { return this; }
+});
+
+test('Controller access defaults to OFF and reporting is blocked without changing regular dashboard data', () => {
+  const d = fixture();
+  assert.deepEqual(controllerAccessState(d), {
+    enabled: false, revision: 0, updatedAt: null, connectorConfigured: false
+  });
+  const before = JSON.stringify(d);
+  const routes = [];
+  registerControllerRoutes(
+    { get: (...args) => routes.push(args), put: (...args) => routes.push(args) },
+    { auth: () => {}, owner: () => {}, readStore: () => d, writeStore: () => {}, baseUrl: 'https://kvn.example' }
+  );
+  const guard = routes.find(r => r[0] === '/api/controller/v1/overview')[3];
+  const res = response();
+  let reached = false;
+  guard({}, res, () => { reached = true; });
+  assert.equal(res.statusCode, 403);
+  assert.equal(reached, false);
+  assert.equal(JSON.stringify(d), before);
+});
+
+test('Controller toggle is owner-only, origin-checked, versioned, audited, and reversible', () => {
+  const d = fixture();
+  const originalOrders = JSON.stringify(d.orders), originalMarketing = JSON.stringify(d.marketing);
+  const routes = [];
+  let saves = 0;
+  const app = { get: (...args) => routes.push(args), put: (...args) => routes.push(args) };
+  const auth = () => {}, owner = () => {};
+  registerControllerRoutes(app, {
+    auth, owner, readStore: () => d, writeStore: () => { saves++; }, baseUrl: 'https://kvn.example'
+  });
+  const put = routes.find(r => r[0] === '/api/controller/v1/access' && r.length === 6);
+  assert.strictEqual(put[1], auth);
+  assert.strictEqual(put[2], owner);
+  const badOrigin = response();
+  put[3]({ headers: { origin: 'https://evil.example' } }, badOrigin, () => { throw Error('bad origin passed'); });
+  assert.equal(badOrigin.statusCode, 403);
+  let allowed = false;
+  put[3]({ headers: { origin: 'https://kvn.example', 'sec-fetch-site': 'same-origin' } },
+    response(), () => { allowed = true; });
+  assert.equal(allowed, true);
+  const handler = put[5];
+  const invalid = response();
+  handler({ body: { enabled: 'true', expectedRevision: 0 }, user: { id: 'owner1' } }, invalid);
+  assert.equal(invalid.statusCode, 400);
+  const on = response();
+  handler({ body: { enabled: true, expectedRevision: 0 }, user: { id: 'owner1', name: 'CEO' } }, on);
+  assert.equal(on.body.enabled, true);
+  assert.equal(on.body.revision, 1);
+  assert.equal(saves, 1);
+  assert.equal(d.auditLogs[0].action, 'controller.access.enabled');
+  const guard = routes.find(r => r[0] === '/api/controller/v1/overview')[3];
+  let proceeded = false;
+  guard({}, response(), () => { proceeded = true; });
+  assert.equal(proceeded, true);
+  const stale = response();
+  handler({ body: { enabled: false, expectedRevision: 0 }, user: { id: 'owner1' } }, stale);
+  assert.equal(stale.statusCode, 409);
+  assert.equal(saves, 1);
+  const off = response();
+  handler({ body: { enabled: false, expectedRevision: 1 }, user: { id: 'owner1' } }, off);
+  assert.equal(off.body.enabled, false);
+  assert.equal(off.body.revision, 2);
+  assert.equal(d.auditLogs[0].action, 'controller.access.disabled');
+  const offResult = response();
+  proceeded = false;
+  guard({}, offResult, () => { proceeded = true; });
+  assert.equal(offResult.statusCode, 403);
+  assert.equal(proceeded, false);
+  assert.equal(saves, 2);
+  assert.equal(JSON.stringify(d.orders), originalOrders);
+  assert.equal(JSON.stringify(d.marketing), originalMarketing);
+});
+
+test('Replaying an unchanged toggle is idempotent and does not add an audit entry', () => {
+  const d = fixture();
+  const on = setControllerAccess(d, {
+    enabled: true, expectedRevision: 0, user: { id: 'owner1' }
+  });
+  const audit = d.auditLogs.length;
+  const repeated = setControllerAccess(d, {
+    enabled: true, expectedRevision: on.revision, user: { id: 'owner1' }
+  });
+  assert.equal(repeated.changed, false);
+  assert.equal(d.auditLogs.length, audit);
+  assert.equal(repeated.revision, 1);
+});
+
+test('Dashboard exposes a keyboard accessible owner-only switch without connecting OAuth implicitly', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const html = await readFile(new URL('../public/dashboard.html', import.meta.url), 'utf8');
+  const js = await readFile(new URL('../public/controller-dashboard.js', import.meta.url), 'utf8');
+  assert.match(html, /id="panel-superadmin"/);
+  assert.match(html, /id="controllerAccessToggle"[^>]*role="switch"|role="switch"[^>]*id="controllerAccessToggle"/);
+  assert.match(html, /controller-dashboard\.js/);
+  assert.match(js, /expectedRevision/);
+  assert.match(js, /\/api\/controller\/v1\/access/);
 });
