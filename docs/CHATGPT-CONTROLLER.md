@@ -47,8 +47,8 @@ Sign in to Super Admin and turn Controller ON only for an authorized test. Turni
 ## Important limits and safeguards
 
 - Production customer and order records remain in the existing persistent KV Tix store; no backfill or migration is required.
-- Only `subscribed` contacts with evidence of permission, correct list membership, nonarchived records and no block in KV Tix's verified Resend webhook journal qualify. Duplicate emails are deduplicated.
-- Provider suppression coverage is the durable local verified webhook journal and KV Tix permission database, **not** a complete independent provider-wide suppression export. Reconcile any legacy external suppressions before trusting a large send.
+- Only `subscribed` contacts with evidence of permission, correct list membership, nonarchived records, no block in KV Tix's verified Resend webhook journal, and no entry on Resend's complete provider-wide suppression list qualify. Duplicate emails are deduplicated.
+- The connector fetches **every page** of the Resend suppression list at preflight and again at launch, then combines it with the verified webhook journal and KV Tix permission history. Unavailable, incomplete, or failed suppression API responses block launch. During actual delivery, the existing background runner checks the webhook-derived blocks before each recipient and the Resend provider itself enforces its suppression list.
 - Missing provider settings, ambiguous delivery evidence, changed audience, altered draft, absent mailing address, duplicate campaigns, unknown authorization or disabled Controller all fail closed.
 - Changing or refreshing the draft requires a new preflight. Sending a campaign twice is blocked; provider message IDs remain in KV Tix for reconciliation.
 - `kvn:send` is a powerful permission. Limit app publication to the owner and leave write confirmations enabled.
