@@ -6,6 +6,7 @@ import {createAgreementStore} from './lib/performance-agreements.js';
 import {registerPerformanceAgreementRoutes} from './lib/performance-agreement-routes.js';
 import { ensureMarketing, syncContacts } from './lib/marketing.js';
 import { registerMarketingRoutes } from './lib/marketing-routes.js';
+import { registerControllerRoutes } from './lib/controller-routes.js';
 import { createEngagementStore, registerEngagementWebhook } from './lib/marketing-engagement.js';
 import { prepareCrmStorage } from './lib/crm-backup.js';
 import { registerCrmRoutes } from './lib/crm-routes.js';
@@ -255,6 +256,7 @@ app.use(['/api/sponsored/info','/api/sponsored/request','/api/sponsored/confirm'
 registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,claimPageUrl:'https://kvnlive.com/promo',launchPolicy:{launchAt:'2026-10-12T18:10:00Z',testTokenHash:'e4a968a617e4075593410bc93871c0c0fca8ca3472d1451f1418a45500b639bc'},retryUpgrade:accessToken=>recoverSponsoredCheckout({readStore,writeStore,stripe,finalizeSession},accessToken)});
 registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
 registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl,engagement:marketingEngagement});
+registerControllerRoutes(app,{auth,owner,readStore,engagement:marketingEngagement});
 registerCrmRoutes(app,{auth,owner,readStore,writeStore,id,sync:runCrmSync,configured:crmConfigured,baseUrl});
 if(crmConfigured){
  const crmTimer=setInterval(()=>runCrmSync().catch(()=>console.error('CRM sync failed')),5*60*1000);crmTimer.unref();
