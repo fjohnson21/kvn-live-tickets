@@ -29,13 +29,13 @@ function fixture() {
 }
 test('preflight derives verified eligible audience, excludes suppressed and unknown, and blocks duplicate', () => {
   const data = fixture(), before = JSON.stringify(data);
-  const p = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl);
+  const p = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl, undefined, new Set());
   assert.equal(p.ready, true);
   assert.equal(p.eligibleRecipientCount, 1);
   assert.deepEqual(p.audience.map(c => c.email), ['buyer@example.com']);
   assert.equal(JSON.stringify(data), before);
   data.marketing.campaigns.push({ ...data.marketing.campaigns[0], id: 'duplicate', status: 'complete', startedAt: '2026-10-12', recipients: [] });
-  const blocked = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl);
+  const blocked = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl, undefined, new Set());
   assert.equal(blocked.ready, false);
   assert.ok(blocked.blockers.some(text => text.includes('matching campaign')));
 });
@@ -43,8 +43,8 @@ test('preflight derives verified eligible audience, excludes suppressed and unkn
 test('starting once records original campaign, preserves orders, then rejects second attempt', () => {
   let data = fixture(), calls = 0;
   const readStore = () => structuredClone(data), writeStore = d => { data = structuredClone(d); };
-  const p = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl);
-  const send = () => startKvCampaign({ readStore, writeStore, engagement, env, baseUrl, runner: { schedule: () => { calls++; } },
+  const p = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl, undefined, new Set());
+  const send = () => startKvCampaign({ readStore, writeStore, engagement, env, baseUrl, externalBlocked: new Set(), runner: { schedule: () => { calls++; } },
     campaignId: 'cmp-approved', token: p.preflightToken, expectedCount: 1, actor: 'owner-identity' });
   assert.equal(send().queued, 1);
   assert.equal(data.marketing.campaigns[0].status, 'sending');
@@ -56,7 +56,7 @@ test('starting once records original campaign, preserves orders, then rejects se
 test('wrong count, stale tokens and owner switch OFF block sends without writes', () => {
   let data = fixture(), writes = 0;
   const readStore = () => structuredClone(data), writeStore = d => { data = d; writes++; };
-  const p = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl);
+  const p = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl, undefined, new Set());
   const start = (token, expectedCount) => startKvCampaign({ readStore, writeStore, engagement, env, baseUrl,
     runner: { schedule: () => {} }, campaignId: 'cmp-approved', token, expectedCount, actor: 'owner-identity' });
   assert.throws(() => start('broken', 1), /changed/);
@@ -87,7 +87,7 @@ test('MCP requires owner authentication and Controller switch, and blocks send w
   let data = fixture(), writes = 0;
   const app = express(); app.use(express.json());
   registerControllerMcp(app, { baseUrl, env, readStore: () => structuredClone(data), writeStore: d => { data = d; writes++; },
-    engagement, runner: { schedule: () => { throw Error('Must not execute'); } },
+    engagement, runner: { schedule: () => { throw Error('Must not execute'); } }, loadSuppressed: async () => new Set(),
     verifyToken: async () => ({ sub: 'owner-identity', scopes: ['kvn:read'] }) });
   const server = app.listen(0); t.after(() => server.close());
   const local = 'http://127.0.0.1:' + server.address().port;
