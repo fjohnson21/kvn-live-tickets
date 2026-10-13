@@ -1,0 +1,11 @@
+/* Controller access card, limited to the existing owner-only Super Admin panel. */
+.controller-access-card { margin-top:18px; }
+.controller-access-row { display:flex; justify-content:space-between; align-items:center; gap:18px; flex-wrap:wrap; }
+.controller-access-card h3 { margin:0 0 6px; }
+.controller-access-card .muted { margin:6px 0 0; }
+.controller-access-switch { flex:none; min-width:98px; min-height:46px; padding:9px 22px; border-radius:999px; background:#313131; color:#fff; border:2px solid #777; font-weight:900; font-size:16px; letter-spacing:.12em; cursor:pointer; }
+.controller-access-switch.is-on { background:#e2252b; border-color:#e2252b; }
+.controller-access-switch:disabled { opacity:.55; cursor:wait; }
+.controller-access-switch:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+.controller-access-status { font-weight:700; margin:15px 0 5px; }
+@media (max-width:600px) { .controller-access-row { align-items:flex-start; } .controller-access-switch { min-width:100px; } }
