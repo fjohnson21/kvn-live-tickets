@@ -50,3 +50,20 @@ test('background runner respects a new opt-out and preserves a concurrent order 
   assert.deepEqual(data.marketing.campaigns[0].recipients.map(r => r.status), ['accepted', 'skipped']);
   assert.equal(data.orders.length, 1);
 });
+
+test('a previous in-flight provider request requires review instead of automatic retry', async () => {
+  let state = { marketing: { campaigns: [{
+    id: 'inflight', engineVersion: 2, autoRun: true, status: 'sending',
+    recipients: [{ id: 'a', status: 'sending', attemptedAt: '2026-10-13T10:00:00Z' }]
+  }] } };
+  let sends = 0;
+  createCampaignRunner({
+    read: () => structuredClone(state), write: x => { state = structuredClone(x); },
+    blocked: () => new Set(), send: async () => { sends++; },
+    baseUrl: 'https://tickets.invalid', delayMs: 0
+  }).schedule();
+  for (let n = 0; n < 100 && state.marketing.campaigns[0].status !== 'needs_review'; n++)
+    await new Promise(done => setTimeout(done, 10));
+  assert.equal(state.marketing.campaigns[0].status, 'needs_review');
+  assert.equal(sends, 0);
+});
