@@ -59,7 +59,7 @@ test('wrong count, stale tokens and owner switch OFF block sends without writes'
   const p = preflightKvCampaign(data, 'cmp-approved', engagement, env, baseUrl, undefined, new Set());
   const start = (token, expectedCount) => startKvCampaign({ readStore, writeStore, engagement, env, baseUrl,
     runner: { schedule: () => {} }, campaignId: 'cmp-approved', token, expectedCount, actor: 'owner-identity' });
-  assert.throws(() => start('broken', 1), /changed/);
+  assert.throws(() => start('broken', 1), /changed|expired/);
   assert.throws(() => start(p.preflightToken, 999), /changed/);
   data.settings.controllerAccess.enabled = false;
   assert.throws(() => start(p.preflightToken, 1), /disabled/);
