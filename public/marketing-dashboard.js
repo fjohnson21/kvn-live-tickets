@@ -40,12 +40,12 @@
    while(!stopped&&e===epoch){
      await new Promise(resolve=>setTimeout(resolve,1500));
      if(stopped||e!==epoch)return;
-     const report=await api(`/api/marketing/campaigns/${id}/preview`);
+     const report=await api(`/api/marketing/campaigns/${id}/status`);
      if(e!==epoch)return;
-     const pending=(report.campaign.recipients||[]).filter(r=>r.status==='pending').length;
-     if($('mpProgress'))$('mpProgress').textContent=`${pending} remaining · ${report.campaign.status}`;
+     const pending=report.remaining;
+     if($('mpProgress'))$('mpProgress').textContent=`${pending} remaining · ${report.status}`;
      await refresh();
-     if(report.campaign.status!=='sending')break;
+     if(report.status!=='sending')break;
    }
    break;
  }
