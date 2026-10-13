@@ -97,6 +97,13 @@ test('MCP requires owner authentication and Controller switch, and blocks send w
   assert.equal((await req('tools/list', {}, null)).status, 401);
   const listed = await (await req('tools/list', {})).json();
   assert.equal(listed.result.tools.length, 5);
+  const sendingTool = listed.result.tools.find(tool => tool.name === 'kvn_start_campaign');
+  const readTool = listed.result.tools.find(tool => tool.name === 'kvn_campaigns');
+  assert.deepEqual(sendingTool.securitySchemes, [{ type: 'oauth2', scopes: ['kvn:read','kvn:send'] }]);
+  assert.deepEqual(readTool.securitySchemes, [{ type: 'oauth2', scopes: ['kvn:read'] }]);
+  const audience = await (await req('tools/call', { name: 'kvn_audiences', arguments: {} })).json();
+  assert.equal(audience.result.structuredContent.suppressionVerified, true);
+  assert.equal(audience.result.structuredContent.lists.find(x => x.id === 'ticket-buyers').eligibleAfterProviderSuppression, 1);
   const pref = await (await req('tools/call', { name: 'kvn_campaign_preflight', arguments: { campaignId: 'cmp-approved' } })).json();
   const p = pref.result.structuredContent;
   assert.equal(p.eligibleRecipientCount, 1);
@@ -104,6 +111,7 @@ test('MCP requires owner authentication and Controller switch, and blocks send w
   const result = await (await req('tools/call', { name: 'kvn_start_campaign', arguments: {
     campaignId: 'cmp-approved', preflightToken: p.preflightToken, expectedRecipientCount: 1 } })).json();
   assert.equal(result.result.isError, true);
+  assert.match(result.result._meta['mcp/www_authenticate'][0], /insufficient_scope/);
   assert.equal(writes, 0);
   data.settings.controllerAccess.enabled = false;
   assert.equal((await req('tools/list', {})).status, 403);
