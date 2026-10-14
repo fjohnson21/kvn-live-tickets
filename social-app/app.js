@@ -32,6 +32,9 @@ export function createSocialApp({
   now=Date.now
 }={}){
   if(!inviteCode||String(inviteCode).length<10)throw new Error('KV_SOCIAL_INVITE_CODE must be configured for the invited beta.');
+  if(production&&!databaseUrl)throw new Error('Production KV Social requires DATABASE_URL. File-backed production is prohibited.');
+  if(production&&!resendApiKey&&!mailer)throw new Error('Production KV Social requires a transactional email sender.');
+
   if(production&&!databaseUrl)throw new Error('DATABASE_URL is required for KV Social production.');
   const db=databaseUrl
     ? createPostgresStore({connectionString:databaseUrl,ownerEmail,ownerPassword})
@@ -41,9 +44,10 @@ export function createSocialApp({
   const verificationEnabled=production||!!sendAccountEmail;
 
   const app=express(),sessions=new Map(),limits=new Map();
+  app.locals.ready=ready;
   const cookieName=production?'__Host-kv_social_session':'kv_social_session';
   app.disable('x-powered-by');
-  app.set('trust proxy',true);
+  app.set('trust proxy',1);
 
   function rate(key,max,windowMs=60_000){
     const current=now();
