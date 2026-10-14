@@ -1,5 +1,5 @@
 // Review signals, never an automatic verdict. All content requires human review.
-export const topics=['Community','Music','KV Live','Purpose'];
+export const topics=['Kingdom Culture','Testimonies','Prayer Requests','Music','KV Live'];
 export const categories=['harassment','hate','threats','spam','derogatory','privacy','sexual','other'];
 export function normalize(text){return text.normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g,'').trim();}
 export function validateText(value,max=2000){
