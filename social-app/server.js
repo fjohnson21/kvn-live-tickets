@@ -10,6 +10,9 @@ const app=createSocialApp({
   inviteCode:process.env.KV_SOCIAL_INVITE_CODE,
   resendApiKey:process.env.RESEND_API_KEY,
   emailFrom:process.env.KV_SOCIAL_EMAIL_FROM||'KV Social <social@tickets.kvnlive.com>',
+  videoLibraryId:process.env.BUNNY_STREAM_LIBRARY_ID,
+  videoApiKey:process.env.BUNNY_STREAM_API_KEY,
+  videoTokenKey:process.env.BUNNY_STREAM_TOKEN_SECURITY_KEY,
   production:process.env.NODE_ENV==='production'
 });
 await app.locals.ready;

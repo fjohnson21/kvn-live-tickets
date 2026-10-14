@@ -224,3 +224,93 @@ test('production KV Social refuses local-file persistence and missing verificati
   assert.throws(()=>createSocialApp({dataDir:'/tmp/should-not-start',production:true,ownerEmail,ownerPassword,inviteCode,resendApiKey:'dummy'}),/DATABASE_URL/);
   assert.throws(()=>createSocialApp({databaseUrl:'postgres://localhost/test',production:true,ownerEmail,ownerPassword,inviteCode}),/transactional email/);
 });
+
+
+test('KV Social video uploads require provider readiness, owner authorization and human review',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'kv-social-video-'));
+  const guid='11111111-1111-4111-8111-111111111111';
+  let ready=false,duration=45;
+  const provider={
+    start:async()=>({videoId:guid,endpoint:'https://video.bunnycdn.com/tusupload',libraryId:'100',signature:'test',expires:9999999999}),
+    status:async()=>({ready,duration}),
+    playback:(id,{autoplay})=>'https://player.mediadelivery.net/embed/100/'+id+'?test='+autoplay
+  };
+  const app=createSocialApp({dataDir:dir,ownerEmail,ownerPassword,inviteCode,production:false,videoProvider:provider});
+  const server=app.listen(0,'127.0.0.1');await once(server,'listening');
+  const base='http://127.0.0.1:'+server.address().port;
+  const request=async(pathname,method='GET',body,session={})=>{
+    const headers={Origin:base};if(body!==undefined)headers['Content-Type']='application/json';
+    if(session.cookie)headers.Cookie=session.cookie;if(session.csrf)headers['X-CSRF-Token']=session.csrf;
+    const res=await fetch(base+'/api'+pathname,{method,headers,body:body===undefined?undefined:JSON.stringify(body)});
+    let data={};if((res.headers.get('content-type')||'').includes('application/json'))data=await res.json();
+    const cookie=res.headers.get('set-cookie');if(cookie)session.cookie=cookie.split(';')[0];if(data.csrf)session.csrf=data.csrf;
+    return {status:res.status,data};
+  };
+  try{
+    const author={},stranger={},moderator={};
+    for(const [email,name,session] of [
+      ['author@kv.test','Author Person',author],['stranger@kv.test','Stranger Person',stranger]
+    ]){
+      const reg=await request('/register','POST',{name,email,password:'member-password-123',inviteCode,communityAgreement:true},session);
+      assert.equal(reg.status,201);
+    }
+    let x=await request('/videos/capabilities','GET',undefined,author);
+    assert.equal(x.data.enabled,true);assert.equal(x.data.maxSeconds,60);
+    x=await request('/videos/start','POST',{name:'testimony.mp4',mime:'video/mp4',bytes:12000},author);
+    assert.equal(x.status,201);assert.equal(x.data.videoId,guid);
+    const poster='data:image/jpeg;base64,/9j/2Q==';
+    x=await request('/videos/'+guid+'/complete','POST',{poster},stranger);
+    assert.equal(x.status,404,'non-author cannot complete upload');
+    x=await request('/videos/'+guid+'/complete','POST',{poster},author);
+    assert.equal(x.status,409,'processing uploads cannot be attached');
+    ready=true;duration=61;
+    x=await request('/videos/'+guid+'/complete','POST',{poster},author);
+    assert.equal(x.status,400,'videos over 60 seconds rejected');
+    duration=45;
+    x=await request('/videos/'+guid+'/complete','POST',{poster},author);
+    assert.equal(x.status,200);
+    x=await request('/posts','POST',{text:'God has been faithful. This is my testimony.',topic:'Testimonies',videoId:guid},stranger);
+    assert.equal(x.status,403,'another member cannot claim uploaded video');
+    x=await request('/posts','POST',{text:'God has been faithful. This is my testimony.',topic:'Testimonies',videoId:guid},author);
+    assert.equal(x.status,201);const postId=x.data.post.id;
+    assert.equal(x.data.post.hasVideo,true);assert.equal(x.data.post.status,'pending');
+    x=await request('/videos/'+guid+'/playback','GET',undefined,stranger);
+    assert.equal(x.status,404,'unapproved playback stays private');
+    x=await request('/videos/'+guid+'/poster','GET',undefined,stranger);
+    assert.equal(x.status,404,'unapproved thumbnail stays private');
+    x=await request('/videos/'+guid+'/playback','GET',undefined,author);
+    assert.equal(x.status,200,'author can preview own pending video');
+    x=await request('/login','POST',{email:ownerEmail,password:ownerPassword},moderator);
+    assert.equal(x.status,200);
+    x=await request('/moderation','GET',undefined,moderator);
+    const pending=x.data.posts.find(item=>item.id===postId);
+    assert.equal(pending.hasVideo,true);
+    x=await request('/posts/'+postId+'/review','POST',{action:'approve',reason:'Approved for community.',version:pending.version},moderator);
+    assert.equal(x.status,200);
+    x=await request('/videos/'+guid+'/playback?autoplay=1','GET',undefined,stranger);
+    assert.equal(x.status,200);assert.match(x.data.url,/test=true/);
+    const image=await fetch(base+'/api/videos/'+guid+'/poster',{headers:{Cookie:stranger.cookie}});
+    assert.equal(image.status,200);assert.match(image.headers.get('content-type'),/image\/jpeg/);
+    x=await request('/posts','POST',{text:'Trying to duplicate the same video.',topic:'Testimonies',videoId:guid},author);
+    assert.equal(x.status,403,'a video cannot be attached to two posts');
+  }finally{
+    await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});
+  }
+});
+
+test('KV Social video provider fails closed when unconfigured',async()=>{
+  const {createBunnyVideoProvider}=await import('../social-app/video-provider.js');
+  assert.equal(createBunnyVideoProvider({}),null);
+  const video=createBunnyVideoProvider({
+    libraryId:123,apiKey:'private-test-key',tokenKey:'private-player-key',
+    fetchImpl:async(url,options)=>({ok:true,json:async()=>options.method==='POST'?{guid:'11111111-1111-4111-8111-111111111111'}:{status:4,length:45,width:720,height:1280}})
+  });
+  const started=await video.start('test.mp4');
+  assert.equal(started.endpoint,'https://video.bunnycdn.com/tusupload');
+  assert.match(started.signature,/^[a-f0-9]{64}$/);
+  const status=await video.status(started.videoId);assert.equal(status.ready,true);
+  const iframe=new URL(video.playback(started.videoId));
+  assert.equal(iframe.hostname,'player.mediadelivery.net');
+  assert.match(iframe.searchParams.get('token'),/^[a-f0-9]{64}$/);
+  assert.equal(iframe.searchParams.get('muted'),'true');
+});

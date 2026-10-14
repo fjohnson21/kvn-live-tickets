@@ -3,6 +3,7 @@ import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {createFileStore,createPostgresStore} from './store.js';
 import {createSocialMailer} from './email.js';
+import {createBunnyVideoProvider,validVideoId} from './video-provider.js';
 import {categories,topics,validateText,screenContent} from './policy.js';
 import {hashPassword,normalizeEmail,profileInitials,safeSecret,validateDisplayName,validatePassword,verifyPassword} from './auth.js';
 
@@ -27,6 +28,10 @@ export function createSocialApp({
   resendApiKey,
   emailFrom,
   mailer,
+  videoProvider,
+  videoLibraryId,
+  videoApiKey,
+  videoTokenKey,
   production=process.env.NODE_ENV==='production',
   sessionMs=7*24*60*60*1000,
   now=Date.now
@@ -42,6 +47,7 @@ export function createSocialApp({
   const ready=Promise.resolve(db.bootstrap());
   const sendAccountEmail=mailer||(resendApiKey?createSocialMailer({apiKey:resendApiKey,from:emailFrom}):null);
   const verificationEnabled=production||!!sendAccountEmail;
+  const videos=videoProvider||createBunnyVideoProvider({libraryId:videoLibraryId,apiKey:videoApiKey,tokenKey:videoTokenKey});
 
   const app=express(),sessions=new Map(),limits=new Map();
   app.locals.ready=ready;
@@ -78,13 +84,19 @@ export function createSocialApp({
   const publicPost=(state,post,userId)=>({
     id:post.id,authorId:post.authorId,author:publicUser(getUser(state,post.authorId)||{id:'unknown',name:'Unknown',role:'system'}),
     text:post.text,topic:post.topic,artist:post.artist||'',theme:post.theme||'none',title:post.title||'',eyebrow:post.eyebrow||'',
-    sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,mediaUrl:post.mediaId?`/api/media/${post.mediaId}`:'',reactions:(post.reactions||[]).length,
+    sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,mediaUrl:post.mediaId?`/api/media/${post.mediaId}`:'',
+    hasVideo:!!post.videoId,videoId:post.videoId||null,videoPosterUrl:post.videoId?`/api/videos/${post.videoId}/poster`:'',videoDuration:post.videoDuration||null,reactions:(post.reactions||[]).length,
     liked:(post.reactions||[]).includes(userId),saved:(post.saves||[]).includes(userId),version:post.version
   });
   const privatePost=(state,post)=>({...publicPost(state,post,''),status:post.status,signals:post.signals||[],reason:post.reason||'',version:post.version});
   const audit=(state,actor,action,targetId,reason)=>state.audit.push({id:randomUUID(),actor,action,targetId,reason,at:new Date(now()).toISOString()});
   const active=req=>{if(req.user.suspended)throw fail(403,'Posting is suspended. You may still appeal a moderation decision.');};
   const owner=req=>{if(req.user.role!=='owner')throw fail(403,'Moderator access required.');};
+  const canSeeVideo=(state,upload,user)=>{
+    const post=state.posts.find(item=>item.videoId===upload.videoId);
+    return !!post&&(user.role==='owner'||post.authorId===user.id||visible(state,post,user.id));
+  };
+  const posterValid=value=>typeof value==='string'&&value.startsWith('data:image/jpeg;base64,')&&value.length<=140000&&/^[A-Za-z0-9+/=]+$/.test(value.slice(23));
 
   function savePhoto(dataUrl,id,state){
     if(!dataUrl)return null;
@@ -124,7 +136,7 @@ export function createSocialApp({
       'X-Content-Type-Options':'nosniff',
       'Referrer-Policy':'no-referrer',
       'X-Frame-Options':'DENY',
-      'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://video.bunnycdn.com; frame-src https://player.mediadelivery.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
       'Permissions-Policy':'camera=(), microphone=(), geolocation=()'
     });
     next();
@@ -281,20 +293,73 @@ export function createSocialApp({
     const media=state.media?.find(item=>item.id===req.params.id);if(!media)throw fail(404,'Photo not found.');
     res.type(media.contentType||'image/jpeg').send(Buffer.from(media.base64,'base64'));
   });
+
+  route('get','/videos/capabilities',(req,res)=>res.json({enabled:!!videos,maxSeconds:60,maxBytes:100_000_000}));
+  route('post','/videos/start',async(req,res)=>{
+    active(req);
+    if(!videos)throw fail(503,'Video upload is not configured for this beta.');
+    exact(req.body,['name','bytes','mime']);
+    rate('video:'+req.user.id,4,60*60*1000);
+    const name=String(req.body.name||'').trim(),mime=String(req.body.mime||''),bytes=Number(req.body.bytes);
+    if(!name||name.length>120||!Number.isInteger(bytes)||bytes<10_000||bytes>100_000_000||!['video/mp4','video/quicktime','video/webm'].includes(mime))throw fail(400,'Choose an MP4, MOV or WebM video below 100 MB.');
+    const state=await read();
+    if(state.videoUploads.filter(v=>v.authorId===req.user.id&&!v.usedByPostId).length>=3)throw fail(429,'Complete an unfinished video before starting another.');
+    const upload=await videos.start(name);
+    if(!validVideoId(upload.videoId))throw fail(503,'Video provider returned an invalid upload.');
+    state.videoUploads.push({videoId:upload.videoId,authorId:req.user.id,name,mime,bytes,status:'uploading',duration:0,poster:null,usedByPostId:null,createdAt:new Date(now()).toISOString()});
+    await write(state);
+    res.status(201).json(upload);
+  });
+  route('post','/videos/:id/complete',async(req,res)=>{
+    active(req);
+    if(!videos)throw fail(503,'Video upload is not configured.');
+    exact(req.body,['poster']);
+    if(!validVideoId(req.params.id)||!posterValid(req.body.poster))throw fail(400,'Video thumbnail is invalid.');
+    const state=await read(),upload=state.videoUploads.find(v=>v.videoId===req.params.id&&v.authorId===req.user.id);
+    if(!upload||upload.usedByPostId)throw fail(404,'Video upload not found.');
+    const remote=await videos.status(req.params.id);
+    if(!remote.ready)throw fail(409,'Your video is still processing. Try again shortly.');
+    if(remote.duration<1||remote.duration>60)throw fail(400,'Video must be 60 seconds or shorter.');
+    upload.status='ready';upload.duration=remote.duration;upload.poster=req.body.poster;
+    await write(state);
+    res.json({videoId:upload.videoId,duration:upload.duration,ready:true});
+  });
+  route('get','/videos/:id/poster',async(req,res)=>{
+    if(!validVideoId(req.params.id))throw fail(404,'Video thumbnail not found.');
+    const state=await read(),upload=state.videoUploads.find(v=>v.videoId===req.params.id);
+    if(!upload||!upload.poster||!canSeeVideo(state,upload,req.user))throw fail(404,'Video thumbnail not found.');
+    res.type('image/jpeg').send(Buffer.from(upload.poster.split(',')[1],'base64'));
+  });
+  route('get','/videos/:id/playback',async(req,res)=>{
+    if(!videos)throw fail(503,'Video playback is unavailable.');
+    if(!validVideoId(req.params.id))throw fail(404,'Video not found.');
+    const state=await read(),upload=state.videoUploads.find(v=>v.videoId===req.params.id);
+    if(!upload||upload.status!=='ready'||!canSeeVideo(state,upload,req.user))throw fail(404,'Video not found.');
+    res.json({url:videos.playback(upload.videoId,{autoplay:req.query.autoplay==='1'}),duration:upload.duration});
+  });
   route('get','/activity',async(req,res)=>{
     const state=await read();
     res.json({posts:state.posts.filter(post=>post.authorId===req.user.id).map(post=>privatePost(state,post)),appeals:state.appeals.filter(appeal=>appeal.authorId===req.user.id)});
   });
   route('post','/posts',async(req,res)=>{
-    active(req);exact(req.body,['text','topic','theme','parentId','photoData']);rate('post:'+req.user.id,8);
+    active(req);exact(req.body,['text','topic','theme','parentId','photoData','videoId']);rate('post:'+req.user.id,8);
     const text=validateText(req.body.text);if(!topics.includes(req.body.topic))throw fail(400,'Choose a topic.');
     if(req.body.theme&&!['none','sound','gather','live'].includes(req.body.theme))throw fail(400,'Choose a curated visual.');
     const state=await read();let parent=null;
     if(req.body.parentId){parent=getPost(state,req.body.parentId);if(parent.parentId||!visible(state,parent,req.user.id))throw fail(404,'Conversation unavailable.');}
     if(state.posts.some(post=>post.authorId===req.user.id&&post.text===text&&post.parentId===(req.body.parentId||null)))throw fail(409,'This message was already submitted.');
     if(state.posts.length>=20_000)throw fail(503,'Community post capacity reached for this beta.');
+
+    let video=null;
+    if(req.body.videoId){
+      if(!validVideoId(req.body.videoId)||!videos)throw fail(400,'Video selection is invalid.');
+      video=state.videoUploads.find(v=>v.videoId===req.body.videoId&&v.authorId===req.user.id&&v.status==='ready'&&!v.usedByPostId);
+      if(!video)throw fail(403,'Video must be uploaded and verified by its author.');
+      if(req.body.photoData)throw fail(400,'Choose either a video or a photo, not both.');
+    }
     const postId=randomUUID();
-    const post={id:postId,authorId:req.user.id,text,topic:req.body.topic,theme:req.body.theme||'none',parentId:parent?.id||null,status:'pending',createdAt:new Date(now()).toISOString(),version:1,reactions:[],saves:[],signals:[],mediaId:savePhoto(req.body.photoData,postId,state)};
+    const post={id:postId,authorId:req.user.id,text,topic:req.body.topic,theme:req.body.theme||'none',parentId:parent?.id||null,status:'pending',createdAt:new Date(now()).toISOString(),version:1,reactions:[],saves:[],signals:[],mediaId:savePhoto(req.body.photoData,postId,state),videoId:video?.videoId||null,videoDuration:video?.duration||null};
+    if(video)video.usedByPostId=postId;
     try{post.signals=screenContent(text);}catch{post.signals=['screening-unavailable'];}
     state.posts.push(post);audit(state,req.user.id,'submit',post.id,'Awaiting human review');await write(state);res.status(201).json({post:privatePost(state,post)});
   });
