@@ -160,7 +160,7 @@ export function createSocialApp({
     const state=read();
     res.json({
       posts:state.posts.filter(post=>visible(state,post,req.user.id)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(post=>publicPost(state,post,req.user.id)),
-      users:state.users.filter(user=>!user.email||user.id===req.user.id||['system','owner'].includes(user.role)).map(publicUser),
+      users:state.users.map(publicUser),
       blocked:state.blocks.filter(item=>item.userId===req.user.id).map(item=>item.authorId),
       topics
     });
