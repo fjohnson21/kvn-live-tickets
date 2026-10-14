@@ -5,6 +5,8 @@
 **Positioning:** One verified account. Multiple authorized profiles. One connected ecosystem.  
 **Status:** Proposed product architecture and commercial packaging; NOT permission to activate production services, charge customers, or merge work into main.
 
+**Feed, advertising and monetization policy:** [KV Social — Fair Feed, Advertising, Boosts & Three Revenue Streams](KVN-SOCIAL-FEED-AND-MONETIZATION.md). This companion spec makes organic reach independent of paid spend, sets combined paid placement caps, and preserves the previously modeled subscriptions / advertising / affiliate + KAP-venture commissions.
+
 ## 1. Executive decision
 
 KVN is a video-first, faith-rooted community and a connected growth/commerce suite for **members, ministries, artists/creators, nonprofits and businesses**. KV Social is the discovery and participation layer, **not** a second independent ticketing or marketing system.
