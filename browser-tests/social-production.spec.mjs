@@ -33,15 +33,15 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
     await page.setViewportSize({width:390,height:844});
     await page.getByRole('button',{name:'My profile'}).click();
     await page.getByRole('button',{name:'Edit profile'}).click();
-    await page.getByLabel('Display name').fill('Jordan J.');
-    await page.getByLabel('Bio').fill('Faith, music, community.');
+    await page.locator('#field-name').fill('Jordan J.');
+    await page.locator('#field-bio').fill('Faith, music, community.');
     await page.getByRole('button',{name:'Save profile'}).click();
     await page.getByText('Profile updated.').waitFor();
 
     await page.getByRole('button',{name:'Community feed'}).click();
     await page.getByRole('button',{name:'Share something'}).click();
     await page.getByLabel('Your message').fill('Grateful for this community and excited for KV Live.');
-    await page.getByLabel('Topic').selectOption('KV Live');
+    await page.getByLabel('Feed').selectOption('KV Live');
     await page.getByRole('button',{name:'Submit for review'}).click();
     await page.getByText('Submitted for human review.').waitFor();
 
