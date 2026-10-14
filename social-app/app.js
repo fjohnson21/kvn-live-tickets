@@ -160,7 +160,7 @@ export function createSocialApp({
       await write(state);
       if(verificationEnabled){
         let delivered=true;
-        try{await sendAccountEmail({to:user.email,name:user.name,kind:'verify',url:`${requestOrigin(req)}/api/verify-email?token=${encodeURIComponent(verificationToken)}`});}catch{delivered=false;}
+        try{await sendAccountEmail({to:user.email,name:user.name,kind:'verify',url:`${requestOrigin(req)}/?verify=${encodeURIComponent(verificationToken)}`});}catch{delivered=false;}
         return res.status(delivered?201:202).json({verificationRequired:true,email:user.email,deliveryPending:!delivered});
       }
       res.status(201).json(createSession(res,user));
@@ -186,20 +186,29 @@ export function createSocialApp({
       const email=normalizeEmail(req.body.email),state=await read(),user=state.users.find(item=>item.email===email&&item.role==='member');
       if(user&&user.emailVerified!==true&&sendAccountEmail){
         const token=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);await write(state);
-        try{await sendAccountEmail({to:user.email,name:user.name,kind:'verify',url:`${requestOrigin(req)}/api/verify-email?token=${encodeURIComponent(token)}`});}catch{}
+        try{await sendAccountEmail({to:user.email,name:user.name,kind:'verify',url:`${requestOrigin(req)}/?verify=${encodeURIComponent(token)}`});}catch{}
       }
       res.json({ok:true});
     }catch(error){next(error);}
   });
 
-  app.get('/api/verify-email',async(req,res,next)=>{
+  // Email security scanners often prefetch GET links. Only an explicit POST consumes a token.
+  app.post('/api/verify-email',async(req,res,next)=>{
     try{
-      await ready;const raw=String(req.query.token||'');if(raw.length<32)return res.redirect('/?verified=invalid');
+      await ready;
+      rate('verify-confirm:'+req.ip,12,15*60*1000);
+      exact(req.body,['token']);
+      const raw=String(req.body.token||'');
+      if(!/^[0-9a-f]{64}$/i.test(raw))throw fail(400,'This verification link is invalid or expired.');
       const state=await read(),record=tokenRecord(state,'emailVerificationTokens',raw);
-      if(!record)return res.redirect('/?verified=invalid');
-      const user=getUser(state,record.userId);if(!user)return res.redirect('/?verified=invalid');
-      record.usedAt=new Date(now()).toISOString();user.emailVerified=true;audit(state,user.id,'email-verified',user.id,'Member verified email');await write(state);
-      res.redirect('/?verified=1');
+      if(!record)throw fail(400,'This verification link is invalid or expired.');
+      const user=getUser(state,record.userId);
+      if(!user||user.role!=='member')throw fail(400,'This verification link is invalid or expired.');
+      record.usedAt=new Date(now()).toISOString();
+      user.emailVerified=true;
+      audit(state,user.id,'email-verified',user.id,'Member verified email');
+      await write(state);
+      res.json({ok:true});
     }catch(error){next(error);}
   });
 
@@ -354,6 +363,16 @@ export function createSocialApp({
     const reason=validateText(req.body.reason,500);user.suspended=req.body.suspended;audit(state,req.user.id,req.body.suspended?'suspend':'reinstate',user.id,reason);await write(state);res.json({ok:true});
   });
 
+  // Safe readiness probe: never reveal account data, DB credentials or email keys.
+  app.get('/healthz',async(req,res)=>{
+    try{
+      await ready;
+      await read();
+      res.set('Cache-Control','no-store').status(200).json({status:'ok'});
+    }catch{
+      res.set('Cache-Control','no-store').status(503).json({status:'unavailable'});
+    }
+  });
   app.use('/api',(req,res)=>res.status(404).json({error:'Unknown KV Social endpoint.'}));
   app.use(express.static(fileURLToPath(new URL('./public/',import.meta.url)),{etag:true,maxAge:production?'5m':0}));
   app.use((err,req,res,next)=>{

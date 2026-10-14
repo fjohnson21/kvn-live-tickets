@@ -161,9 +161,17 @@ test('KV Social verifies email and supports one-time password recovery',async()=
     response=await request('/login','POST',{email:'verify@example.com',password:'member-password-123'},member);
     assert.equal(response.status,403);
 
-    const verifyToken=new URL(sent[0].url).searchParams.get('token');assert.ok(verifyToken);
-    response=await request('/verify-email?token='+encodeURIComponent(verifyToken),'GET',undefined,member);
-    assert.equal(response.status,302);assert.equal(response.location,'/?verified=1');
+    const verifyToken=new URL(sent[0].url).searchParams.get('verify');assert.ok(verifyToken);
+    // An automated GET prefetch must not activate an account.
+    const preview=await fetch(base+'/?verify='+encodeURIComponent(verifyToken));
+    assert.equal(preview.status,200);
+    response=await request('/login','POST',{email:'verify@example.com',password:'member-password-123'},member);
+    assert.equal(response.status,403);
+
+    response=await request('/verify-email','POST',{token:verifyToken},member);
+    assert.equal(response.status,200);assert.equal(response.data.ok,true);
+    const replay=await request('/verify-email','POST',{token:verifyToken},member);
+    assert.equal(replay.status,400,'verification tokens must be one-time');
 
     response=await request('/login','POST',{email:'verify@example.com',password:'member-password-123'},member);
     assert.equal(response.status,200);assert.equal(response.data.user.emailVerified,true);

@@ -116,5 +116,29 @@ function reviewModal(p,data,appeal=null){const r=showModal(appeal?'Reconsider th
  }));form.onsubmit=e=>e.preventDefault();form.append(error,actions);r.append(form);
 }
 function suspendModal(u){const r=showModal(u.suspended?'Reinstate this account?':'Suspend posting?');r.append(node('p','',u.name),node('p','','Suspension hides this account’s published content and prevents new posts. The member can still read decisions and appeal. Reinstatement makes previously published content visible again.'));const f=submitForm(r,u.suspended?'Reinstate account':'Suspend account',async d=>{await api(`/users/${u.id}/suspend`,'POST',{suspended:!u.suspended,reason:d.get('reason')});await finish('Account decision recorded.');});field(f.form,'Decision reason','reason').maxLength=500;f.finish();}
-const authParams=new URLSearchParams(location.search);if(authParams.get('verified')==='1'){authView(false);$('#auth-notice').hidden=false;$('#auth-notice').textContent='Email verified. You can sign in now.';history.replaceState({},'',location.pathname);}else if(authParams.get('verified')==='invalid'){authView(false);$('#login-error').textContent='That verification link is invalid or expired. Enter your email and resend verification.';history.replaceState({},'',location.pathname);}if(authParams.get('reset'))setTimeout(()=>resetPasswordModal(authParams.get('reset')),0);
+function verifyEmailModal(token){
+ const root=showModal('Confirm your email');
+ root.append(node('p','muted','Confirm that you want to verify this email address and activate your KV Social account. No account change occurs until you press the button.'));
+ const action=button('Confirm my email','primary',()=>act(async()=>{
+  action.disabled=true;
+  try{
+   await api('/verify-email','POST',{token});
+   $('#modal').close();
+   $('#auth-notice').hidden=false;
+   $('#auth-notice').textContent='Email verified. You can sign in now.';
+  }catch(error){
+   root.append(node('p','error',error.message));
+  }finally{action.disabled=false;}
+ }));
+ root.append(action);
+}
+const authParams=new URLSearchParams(location.search);
+const verifyToken=authParams.get('verify'),resetToken=authParams.get('reset');
+if(verifyToken||resetToken)history.replaceState({},'',location.pathname);
+if(verifyToken){
+ authView(false);
+ setTimeout(()=>verifyEmailModal(verifyToken),0);
+}else if(resetToken){
+ setTimeout(()=>resetPasswordModal(resetToken),0);
+}
 api('/session').then(loginReady).catch(()=>{});

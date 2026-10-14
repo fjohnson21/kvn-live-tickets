@@ -73,3 +73,45 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
     await browser?.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});
   }
 });
+
+
+test('KV Social email link requires a deliberate confirmation click on mobile',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'kv-social-verify-ui-'));
+  const messages=[];
+  const server=createSocialApp({
+    dataDir:dir,ownerEmail:'moderator@kv.test',ownerPassword:'moderator-password-123',
+    inviteCode:'kv-social-beta-invite-2026',
+    production:false,
+    mailer:async message=>{messages.push(message);return {id:'mail-test'};}
+  }).listen(0,'127.0.0.1');
+  await once(server,'listening');const base=`http://127.0.0.1:${server.address().port}`;let browser;
+  try{
+    browser=await chromium.launch({headless:true});
+    const page=await browser.newPage({viewport:{width:390,height:844}});
+    await page.goto(base);
+    await page.getByRole('button',{name:'Create account'}).click();
+    await page.locator('#register-name').fill('Mobile Member');
+    await page.locator('#register-email').fill('mobile-verify@example.com');
+    await page.locator('#register-password').fill('member-password-123');
+    await page.locator('#invite-code').fill('kv-social-beta-invite-2026');
+    await page.getByLabel(/I agree to participate respectfully/).check();
+    await page.getByRole('button',{name:/Create my account/}).click();
+    await page.getByText('Check your email to verify your KV Social account, then sign in.').waitFor();
+    assert.equal(messages.length,1);
+    await page.goto(messages[0].url);
+    await page.getByRole('button',{name:'Confirm my email'}).waitFor();
+    // The GET loads a page only; verification requires the human confirmation action.
+    const before=await fetch(base+'/api/login',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({email:'mobile-verify@example.com',password:'member-password-123'})});
+    assert.equal(before.status,403);
+    await page.getByRole('button',{name:'Confirm my email'}).click();
+    await page.getByText('Email verified. You can sign in now.').waitFor();
+    await page.locator('#login-email').fill('mobile-verify@example.com');
+    await page.locator('#login-password').fill('member-password-123');
+    await page.getByRole('button',{name:/Enter KV Social/}).click();
+    await page.getByRole('heading',{name:'Your people. Your purpose.'}).waitFor();
+    await page.close();
+  }finally{
+    await browser?.close();await new Promise(resolve=>server.close(resolve));
+    fs.rmSync(dir,{recursive:true,force:true});
+  }
+});
