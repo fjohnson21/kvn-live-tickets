@@ -53,7 +53,7 @@ export function createSocialApp({
     if(value.count>max)throw fail(429,'Please slow down and try again.');
   }
   const read=()=>db.read();
-  const write=state=>db.write(state);
+  const write=state=>db.await write(state);
   const getUser=(state,id)=>state.users.find(user=>user.id===id);
   const getPost=(state,id)=>{const post=state.posts.find(item=>item.id===id);if(!post)throw fail(404,'Post not found.');return post;};
   const publicUser=user=>({id:user.id,name:user.name,bio:user.bio||'',initials:user.initials||profileInitials(user.name),suspended:!!user.suspended,role:user.role==='system'?'system':user.role==='owner'?'owner':'member'});
@@ -152,7 +152,7 @@ export function createSocialApp({
       state.users.push(user);audit(state,user.id,'register',user.id,'Invited beta account created');
       let verificationToken='';
       if(verificationEnabled)verificationToken=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);
-      await write(state);
+      await await write(state);
       if(verificationEnabled){
         let delivered=true;
         try{await sendAccountEmail({to:user.email,name:user.name,kind:'verify',url:`${requestOrigin(req)}/api/verify-email?token=${encodeURIComponent(verificationToken)}`});}catch{delivered=false;}
@@ -180,7 +180,7 @@ export function createSocialApp({
       await ready;rate('verify-resend:'+req.ip,4,60*60*1000);exact(req.body,['email']);
       const email=normalizeEmail(req.body.email),state=await read(),user=state.users.find(item=>item.email===email&&item.role==='member');
       if(user&&user.emailVerified!==true&&sendAccountEmail){
-        const token=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);await write(state);
+        const token=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);await await write(state);
         try{await sendAccountEmail({to:user.email,name:user.name,kind:'verify',url:`${requestOrigin(req)}/api/verify-email?token=${encodeURIComponent(token)}`});}catch{}
       }
       res.json({ok:true});
@@ -193,7 +193,7 @@ export function createSocialApp({
       const state=await read(),record=tokenRecord(state,'emailVerificationTokens',raw);
       if(!record)return res.redirect('/?verified=invalid');
       const user=getUser(state,record.userId);if(!user)return res.redirect('/?verified=invalid');
-      record.usedAt=new Date(now()).toISOString();user.emailVerified=true;audit(state,user.id,'email-verified',user.id,'Member verified email');await write(state);
+      record.usedAt=new Date(now()).toISOString();user.emailVerified=true;audit(state,user.id,'email-verified',user.id,'Member verified email');await await write(state);
       res.redirect('/?verified=1');
     }catch(error){next(error);}
   });
@@ -203,7 +203,7 @@ export function createSocialApp({
       await ready;rate('password-forgot:'+req.ip,5,60*60*1000);exact(req.body,['email']);
       const email=normalizeEmail(req.body.email),state=await read(),user=state.users.find(item=>item.email===email&&['member','owner'].includes(item.role));
       if(user&&user.emailVerified===true&&sendAccountEmail){
-        const token=issueToken(state,'passwordResetTokens',user.id,60*60*1000);await write(state);
+        const token=issueToken(state,'passwordResetTokens',user.id,60*60*1000);await await write(state);
         try{await sendAccountEmail({to:user.email,name:user.name,kind:'reset',url:`${requestOrigin(req)}/?reset=${encodeURIComponent(token)}`});}catch{}
       }
       res.json({ok:true});
@@ -216,7 +216,7 @@ export function createSocialApp({
       const raw=String(req.body.token||''),password=validatePassword(req.body.password),state=await read(),record=tokenRecord(state,'passwordResetTokens',raw);
       if(!record)throw fail(400,'This password reset link is invalid or expired.');
       const user=getUser(state,record.userId);if(!user)throw fail(400,'This password reset link is invalid or expired.');
-      user.passwordHash=hashPassword(password);record.usedAt=new Date(now()).toISOString();audit(state,user.id,'password-reset',user.id,'Member reset password');await write(state);
+      user.passwordHash=hashPassword(password);record.usedAt=new Date(now()).toISOString();audit(state,user.id,'password-reset',user.id,'Member reset password');await await write(state);
       for(const [token,session] of sessions)if(session.userId===user.id)sessions.delete(token);
       res.json({ok:true});
     }catch(error){next(error);}
@@ -246,12 +246,12 @@ export function createSocialApp({
     sessions.delete(req.token);res.clearCookie(cookieName,{path:'/',secure:production,sameSite:'strict'});res.json({ok:true});
   });
   route('patch','/profile',async(req,res)=>{
-    exact(req.body,['name','bio']);const state=read(),user=getUser(state,req.user.id);
+    exact(req.body,['name','bio']);const state=await read(),user=getUser(state,req.user.id);
     user.name=validateDisplayName(req.body.name);user.initials=profileInitials(user.name);user.bio=cleanBio(req.body.bio);
-    audit(state,user.id,'profile-update',user.id,'Member updated profile');write(state);res.json({user:sessionUser(user)});
+    audit(state,user.id,'profile-update',user.id,'Member updated profile');await write(state);res.json({user:sessionUser(user)});
   });
   route('get','/feed',async(req,res)=>{
-    const state=read();
+    const state=await read();
     res.json({
       posts:state.posts.filter(post=>visible(state,post,req.user.id)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(post=>publicPost(state,post,req.user.id)),
       users:state.users.map(publicUser),
@@ -268,53 +268,53 @@ export function createSocialApp({
     res.type(media.contentType||'image/jpeg').send(Buffer.from(media.base64,'base64'));
   });
   route('get','/activity',async(req,res)=>{
-    const state=read();
+    const state=await read();
     res.json({posts:state.posts.filter(post=>post.authorId===req.user.id).map(post=>privatePost(state,post)),appeals:state.appeals.filter(appeal=>appeal.authorId===req.user.id)});
   });
   route('post','/posts',async(req,res)=>{
     active(req);exact(req.body,['text','topic','theme','parentId','photoData']);rate('post:'+req.user.id,8);
     const text=validateText(req.body.text);if(!topics.includes(req.body.topic))throw fail(400,'Choose a topic.');
     if(req.body.theme&&!['none','sound','gather','live'].includes(req.body.theme))throw fail(400,'Choose a curated visual.');
-    const state=read();let parent=null;
+    const state=await read();let parent=null;
     if(req.body.parentId){parent=getPost(state,req.body.parentId);if(parent.parentId||!visible(state,parent,req.user.id))throw fail(404,'Conversation unavailable.');}
     if(state.posts.some(post=>post.authorId===req.user.id&&post.text===text&&post.parentId===(req.body.parentId||null)))throw fail(409,'This message was already submitted.');
     if(state.posts.length>=20_000)throw fail(503,'Community post capacity reached for this beta.');
     const postId=randomUUID();
     const post={id:postId,authorId:req.user.id,text,topic:req.body.topic,theme:req.body.theme||'none',parentId:parent?.id||null,status:'pending',createdAt:new Date(now()).toISOString(),version:1,reactions:[],saves:[],signals:[],mediaId:savePhoto(req.body.photoData,postId,state)};
     try{post.signals=screenContent(text);}catch{post.signals=['screening-unavailable'];}
-    state.posts.push(post);audit(state,req.user.id,'submit',post.id,'Awaiting human review');write(state);res.status(201).json({post:privatePost(state,post)});
+    state.posts.push(post);audit(state,req.user.id,'submit',post.id,'Awaiting human review');await write(state);res.status(201).json({post:privatePost(state,post)});
   });
   route('patch','/posts/:id',async(req,res)=>{
-    active(req);exact(req.body,['text']);rate('post:'+req.user.id,8);const state=read(),post=getPost(state,req.params.id);
+    active(req);exact(req.body,['text']);rate('post:'+req.user.id,8);const state=await read(),post=getPost(state,req.params.id);
     if(post.authorId!==req.user.id)throw fail(403,'Only the author may edit.');
     if(state.appeals.some(appeal=>appeal.postId===post.id&&appeal.status==='pending'))throw fail(409,'Wait for the open appeal before editing.');
     post.text=validateText(req.body.text);post.status='pending';post.reason='Revision awaiting review';post.version+=1;
     try{post.signals=screenContent(post.text);}catch{post.signals=['screening-unavailable'];}
-    audit(state,req.user.id,'edit',post.id,'Revision requires review');write(state);res.json({post:privatePost(state,post)});
+    audit(state,req.user.id,'edit',post.id,'Revision requires review');await write(state);res.json({post:privatePost(state,post)});
   });
-  for(const action of ['react','save'])route('post',`/posts/:id/${action}`,(req,res)=>{
-    active(req);exact(req.body,[]);const state=read(),post=getPost(state,req.params.id);if(!visible(state,post,req.user.id))throw fail(404,'Post unavailable.');
-    const key=action==='react'?'reactions':'saves';const values=post[key]||[];post[key]=values.includes(req.user.id)?values.filter(id=>id!==req.user.id):[...values,req.user.id];write(state);res.json({post:publicPost(state,post,req.user.id)});
+  for(const action of ['react','save'])route('post',`/posts/:id/${action}`,async(req,res)=>{
+    active(req);exact(req.body,[]);const state=await read(),post=getPost(state,req.params.id);if(!visible(state,post,req.user.id))throw fail(404,'Post unavailable.');
+    const key=action==='react'?'reactions':'saves';const values=post[key]||[];post[key]=values.includes(req.user.id)?values.filter(id=>id!==req.user.id):[...values,req.user.id];await write(state);res.json({post:publicPost(state,post,req.user.id)});
   });
   route('post','/posts/:id/report',async(req,res)=>{
-    exact(req.body,['category','reason']);rate('report:'+req.user.id,5);const state=read(),post=getPost(state,req.params.id);if(!visible(state,post,req.user.id))throw fail(404,'Post unavailable.');
+    exact(req.body,['category','reason']);rate('report:'+req.user.id,5);const state=await read(),post=getPost(state,req.params.id);if(!visible(state,post,req.user.id))throw fail(404,'Post unavailable.');
     if(!categories.includes(req.body.category))throw fail(400,'Choose a report category.');const reason=validateText(req.body.reason,500);
     if(state.reports.some(report=>report.postId===post.id&&report.reporterId===req.user.id&&report.status==='open'))throw fail(409,'Your report is already awaiting review.');
     const report={id:randomUUID(),postId:post.id,reporterId:req.user.id,category:req.body.category,reason,status:'open',at:new Date(now()).toISOString()};
-    state.reports.push(report);audit(state,req.user.id,'report',post.id,'Private report received');write(state);res.status(201).json({ok:true});
+    state.reports.push(report);audit(state,req.user.id,'report',post.id,'Private report received');await write(state);res.status(201).json({ok:true});
   });
   route('post','/blocks',async(req,res)=>{
-    exact(req.body,['authorId','blocked']);const state=read();if(typeof req.body.blocked!=='boolean'||!getUser(state,req.body.authorId)||req.body.authorId===req.user.id)throw fail(400,'Choose another account.');
+    exact(req.body,['authorId','blocked']);const state=await read();if(typeof req.body.blocked!=='boolean'||!getUser(state,req.body.authorId)||req.body.authorId===req.user.id)throw fail(400,'Choose another account.');
     state.blocks=state.blocks.filter(item=>!(item.userId===req.user.id&&item.authorId===req.body.authorId));
     if(req.body.blocked)state.blocks.push({userId:req.user.id,authorId:req.body.authorId,at:new Date(now()).toISOString()});
-    write(state);res.json({ok:true});
+    await write(state);res.json({ok:true});
   });
-  route('get','/moderation',(req,res)=>{
-    owner(req);const state=read();
+  route('get','/moderation',async(req,res)=>{
+    owner(req);const state=await read();
     res.json({posts:state.posts.map(post=>privatePost(state,post)),reports:state.reports,appeals:state.appeals,audit:state.audit,users:state.users.filter(user=>user.role!=='system').map(user=>({...publicUser(user),email:user.email||''}))});
   });
   route('post','/posts/:id/review',async(req,res)=>{
-    owner(req);exact(req.body,['action','reason','version']);const reason=validateText(req.body.reason,500),state=read(),post=getPost(state,req.params.id);
+    owner(req);exact(req.body,['action','reason','version']);const reason=validateText(req.body.reason,500),state=await read(),post=getPost(state,req.params.id);
     if(post.version!==req.body.version)throw fail(409,'Content changed. Refresh before reviewing.');
     if(!['approve','hide','remove'].includes(req.body.action))throw fail(400,'Choose a review decision.');
     if(state.appeals.some(appeal=>appeal.postId===post.id&&appeal.status==='pending'))throw fail(409,'Resolve the open appeal first.');
@@ -323,30 +323,30 @@ export function createSocialApp({
     if(status==='published'&&post.parentId&&!visible(state,getPost(state,post.parentId),req.user.id))throw fail(409,'Parent conversation must be available.');
     post.status=status;post.reason=reason;post.version+=1;
     for(const report of state.reports)if(report.postId===post.id&&report.status==='open')Object.assign(report,{status:'resolved',resolution:reason,reviewerId:req.user.id,resolvedAt:new Date(now()).toISOString()});
-    audit(state,req.user.id,req.body.action,post.id,reason);write(state);res.json({post:privatePost(state,post)});
+    audit(state,req.user.id,req.body.action,post.id,reason);await write(state);res.json({post:privatePost(state,post)});
   });
   route('post','/posts/:id/appeal',async(req,res)=>{
-    exact(req.body,['reason']);rate('appeal:'+req.user.id,3);const state=read(),post=getPost(state,req.params.id);
+    exact(req.body,['reason']);rate('appeal:'+req.user.id,3);const state=await read(),post=getPost(state,req.params.id);
     if(post.authorId!==req.user.id)throw fail(403,'Only the author can appeal.');
     if(!['removed','hidden'].includes(post.status))throw fail(409,'This post has no removal decision to appeal.');
     if(state.appeals.some(appeal=>appeal.postId===post.id&&appeal.decisionVersion===post.version))throw fail(409,'This decision already has an appeal.');
     const appeal={id:randomUUID(),postId:post.id,authorId:req.user.id,reason:validateText(req.body.reason,1000),decisionVersion:post.version,status:'pending',at:new Date(now()).toISOString()};
-    state.appeals.push(appeal);audit(state,req.user.id,'appeal',post.id,'Author requested review');write(state);res.status(201).json({appeal});
+    state.appeals.push(appeal);audit(state,req.user.id,'appeal',post.id,'Author requested review');await write(state);res.status(201).json({appeal});
   });
   route('post','/appeals/:id/resolve',async(req,res)=>{
-    owner(req);exact(req.body,['action','reason','version']);const state=read(),appeal=state.appeals.find(item=>item.id===req.params.id);if(!appeal)throw fail(404,'Appeal not found.');
+    owner(req);exact(req.body,['action','reason','version']);const state=await read(),appeal=state.appeals.find(item=>item.id===req.params.id);if(!appeal)throw fail(404,'Appeal not found.');
     const post=getPost(state,appeal.postId);if(appeal.status!=='pending'||post.version!==req.body.version||post.version!==appeal.decisionVersion)throw fail(409,'Appeal or post changed.');
     if(!['restore','uphold'].includes(req.body.action))throw fail(400,'Choose an appeal decision.');
     const reason=validateText(req.body.reason,500),author=getUser(state,post.authorId);
     if(req.body.action==='restore'&&(author?.suspended||post.authorId===req.user.id||(post.parentId&&!visible(state,getPost(state,post.parentId),req.user.id))))throw fail(409,'Resolve account or parent restrictions before restoring.');
     Object.assign(appeal,{status:'resolved',resolution:req.body.action,explanation:reason,reviewerId:req.user.id,resolvedAt:new Date(now()).toISOString()});
     if(req.body.action==='restore'){post.status='published';post.version+=1;}post.reason=reason;
-    audit(state,req.user.id,'appeal-'+req.body.action,post.id,reason);write(state);res.json({appeal});
+    audit(state,req.user.id,'appeal-'+req.body.action,post.id,reason);await write(state);res.json({appeal});
   });
-  route('post','/users/:id/suspend',(req,res)=>{
-    owner(req);exact(req.body,['suspended','reason']);const state=read(),user=getUser(state,req.params.id);
+  route('post','/users/:id/suspend',async(req,res)=>{
+    owner(req);exact(req.body,['suspended','reason']);const state=await read(),user=getUser(state,req.params.id);
     if(!user||user.role!=='member'||typeof req.body.suspended!=='boolean')throw fail(400,'Choose a member account and state.');
-    const reason=validateText(req.body.reason,500);user.suspended=req.body.suspended;audit(state,req.user.id,req.body.suspended?'suspend':'reinstate',user.id,reason);write(state);res.json({ok:true});
+    const reason=validateText(req.body.reason,500);user.suspended=req.body.suspended;audit(state,req.user.id,req.body.suspended?'suspend':'reinstate',user.id,reason);await write(state);res.json({ok:true});
   });
 
   app.use('/api',(req,res)=>res.status(404).json({error:'Unknown KV Social endpoint.'}));
