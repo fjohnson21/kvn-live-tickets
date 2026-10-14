@@ -3,6 +3,7 @@ import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {createFileStore,createPostgresStore} from './store.js';
 import {createSocialMailer} from './email.js';
+import {createBunnyVideoProvider,validVideoId} from './video-provider.js';
 import {categories,topics,validateText,screenContent} from './policy.js';
 import {hashPassword,normalizeEmail,profileInitials,safeSecret,validateDisplayName,validatePassword,verifyPassword} from './auth.js';
 
@@ -27,6 +28,10 @@ export function createSocialApp({
   resendApiKey,
   emailFrom,
   mailer,
+  videoProvider,
+  videoLibraryId,
+  videoApiKey,
+  videoTokenKey,
   production=process.env.NODE_ENV==='production',
   sessionMs=7*24*60*60*1000,
   now=Date.now
@@ -42,6 +47,7 @@ export function createSocialApp({
   const ready=Promise.resolve(db.bootstrap());
   const sendAccountEmail=mailer||(resendApiKey?createSocialMailer({apiKey:resendApiKey,from:emailFrom}):null);
   const verificationEnabled=production||!!sendAccountEmail;
+  const videos=videoProvider||createBunnyVideoProvider({libraryId:videoLibraryId,apiKey:videoApiKey,tokenKey:videoTokenKey});
 
   const app=express(),sessions=new Map(),limits=new Map();
   app.locals.ready=ready;
@@ -78,13 +84,19 @@ export function createSocialApp({
   const publicPost=(state,post,userId)=>({
     id:post.id,authorId:post.authorId,author:publicUser(getUser(state,post.authorId)||{id:'unknown',name:'Unknown',role:'system'}),
     text:post.text,topic:post.topic,artist:post.artist||'',theme:post.theme||'none',title:post.title||'',eyebrow:post.eyebrow||'',
-    sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,mediaUrl:post.mediaId?`/api/media/${post.mediaId}`:'',reactions:(post.reactions||[]).length,
+    sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,mediaUrl:post.mediaId?`/api/media/${post.mediaId}`:'',
+    hasVideo:!!post.videoId,videoPosterUrl:post.videoId?`/api/videos/${post.videoId}/poster`:'',videoDuration:post.videoDuration||null,reactions:(post.reactions||[]).length,
     liked:(post.reactions||[]).includes(userId),saved:(post.saves||[]).includes(userId),version:post.version
   });
   const privatePost=(state,post)=>({...publicPost(state,post,''),status:post.status,signals:post.signals||[],reason:post.reason||'',version:post.version});
   const audit=(state,actor,action,targetId,reason)=>state.audit.push({id:randomUUID(),actor,action,targetId,reason,at:new Date(now()).toISOString()});
   const active=req=>{if(req.user.suspended)throw fail(403,'Posting is suspended. You may still appeal a moderation decision.');};
   const owner=req=>{if(req.user.role!=='owner')throw fail(403,'Moderator access required.');};
+  const canSeeVideo=(state,upload,user)=>{
+    const post=state.posts.find(item=>item.videoId===upload.videoId);
+    return !!post&&(user.role==='owner'||post.authorId===user.id||visible(state,post,user.id));
+  };
+  const posterValid=value=>typeof value==='string'&&value.startsWith('data:image/jpeg;base64,')&&value.length<=140000&&/^[A-Za-z0-9+/=]+$/.test(value.slice(23));
 
   function savePhoto(dataUrl,id,state){
     if(!dataUrl)return null;
@@ -124,7 +136,7 @@ export function createSocialApp({
       'X-Content-Type-Options':'nosniff',
       'Referrer-Policy':'no-referrer',
       'X-Frame-Options':'DENY',
-      'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://video.bunnycdn.com; frame-src https://player.mediadelivery.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
       'Permissions-Policy':'camera=(), microphone=(), geolocation=()'
     });
     next();
