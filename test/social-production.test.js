@@ -121,13 +121,13 @@ test('KV Social rejects unsafe cross-origin writes and protects moderation',asyn
     },member);
     assert.equal(response.status,201);
 
-    const direct=await fetch(runtime.base+'/api/posts',{method:'POST',headers:{'Content-Type':'application/json','Origin':'https://evil.example',Cookie:member.cookie,'X-CSRF-Token':member.csrf},body:JSON.stringify({text:'test',topic:'Community',theme:'none'})});
+    const direct=await fetch(runtime.base+'/api/posts',{method:'POST',headers:{'Content-Type':'application/json','Origin':'https://evil.example',Cookie:member.cookie,'X-CSRF-Token':member.csrf},body:JSON.stringify({text:'test',topic:'Kingdom Culture',theme:'none'})});
     assert.equal(direct.status,403);
 
     response=await runtime.request('/moderation','GET',undefined,member);
     assert.equal(response.status,403);
 
-    response=await runtime.request('/posts','POST',{text:'I enjoyed the event but the sound was too loud.',topic:'Community',theme:'none'},member);
+    response=await runtime.request('/posts','POST',{text:'I enjoyed the event but the sound was too loud.',topic:'Kingdom Culture',theme:'none'},member);
     assert.equal(response.status,201);
     assert.equal(response.data.post.status,'pending');
   }finally{
