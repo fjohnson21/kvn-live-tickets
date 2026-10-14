@@ -53,7 +53,7 @@ export function createSocialApp({
     if(value.count>max)throw fail(429,'Please slow down and try again.');
   }
   const read=()=>db.read();
-  const write=state=>db.await write(state);
+  const write=state=>db.write(state);
   const getUser=(state,id)=>state.users.find(user=>user.id===id);
   const getPost=(state,id)=>{const post=state.posts.find(item=>item.id===id);if(!post)throw fail(404,'Post not found.');return post;};
   const publicUser=user=>({id:user.id,name:user.name,bio:user.bio||'',initials:user.initials||profileInitials(user.name),suspended:!!user.suspended,role:user.role==='system'?'system':user.role==='owner'?'owner':'member'});
