@@ -44,7 +44,12 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
     await page.locator('#field-topic').selectOption('KV Live');
     const jpegBase64=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=80;canvas.height=80;const ctx=canvas.getContext('2d');ctx.fillStyle='#555';ctx.fillRect(0,0,80,80);return canvas.toDataURL('image/jpeg',0.9).split(',')[1];});
     await page.locator('#post-photo').setInputFiles({name:'sample.jpg',mimeType:'image/jpeg',buffer:Buffer.from(jpegBase64,'base64')});
+    let postStatus=null,postBody='';
+    page.on('response',async response=>{if(response.url().endsWith('/api/posts')&&response.request().method()==='POST'){postStatus=response.status();postBody=await response.text();}});
     await page.getByRole('button',{name:'Submit for review'}).click();
+    await page.waitForTimeout(1500);
+    const submitError=(await page.locator('dialog .error').textContent().catch(()=>''))||'';
+    assert.equal(submitError,'',`KV Social photo submit error: ${submitError}; response: ${postStatus} ${postBody}`);
     await page.getByText('Submitted for human review.').waitFor();
 
     const ownerContext=await browser.newContext({viewport:{width:390,height:844}});
