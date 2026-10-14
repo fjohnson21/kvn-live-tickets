@@ -1,4 +1,6 @@
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {createFileStore} from './store.js';
@@ -28,6 +30,7 @@ export function createSocialApp({
   if(!inviteCode||String(inviteCode).length<10)throw new Error('KV_SOCIAL_INVITE_CODE must be configured for the invited beta.');
   const db=createFileStore({dataDir,ownerEmail,ownerPassword});
   db.bootstrap();
+  const mediaDir=path.join(dataDir,'media');fs.mkdirSync(mediaDir,{recursive:true});
 
   const app=express(),sessions=new Map(),limits=new Map();
   const cookieName=production?'__Host-kv_social_session':'kv_social_session';
@@ -63,13 +66,25 @@ export function createSocialApp({
   const publicPost=(state,post,userId)=>({
     id:post.id,authorId:post.authorId,author:publicUser(getUser(state,post.authorId)||{id:'unknown',name:'Unknown',role:'system'}),
     text:post.text,topic:post.topic,artist:post.artist||'',theme:post.theme||'none',title:post.title||'',eyebrow:post.eyebrow||'',
-    sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,reactions:(post.reactions||[]).length,
+    sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,mediaUrl:post.mediaId?`/api/media/${post.mediaId}`:'',reactions:(post.reactions||[]).length,
     liked:(post.reactions||[]).includes(userId),saved:(post.saves||[]).includes(userId),version:post.version
   });
   const privatePost=(state,post)=>({...publicPost(state,post,''),status:post.status,signals:post.signals||[],reason:post.reason||'',version:post.version});
   const audit=(state,actor,action,targetId,reason)=>state.audit.push({id:randomUUID(),actor,action,targetId,reason,at:new Date(now()).toISOString()});
   const active=req=>{if(req.user.suspended)throw fail(403,'Posting is suspended. You may still appeal a moderation decision.');};
   const owner=req=>{if(req.user.role!=='owner')throw fail(403,'Moderator access required.');};
+
+  function savePhoto(dataUrl,id){
+    if(!dataUrl)return null;
+    if(typeof dataUrl!=='string')throw fail(400,'Photo upload is invalid.');
+    const match=/^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+    if(!match)throw fail(400,'Photos must be processed as JPEG images.');
+    const bytes=Buffer.from(match[1],'base64');
+    if(bytes.length<100||bytes.length>1_200_000)throw fail(400,'Photo must be between 100 bytes and 1.2 MB after processing.');
+    if(bytes[0]!==0xff||bytes[1]!==0xd8||bytes[2]!==0xff||bytes.at(-2)!==0xff||bytes.at(-1)!==0xd9)throw fail(400,'Photo file signature is invalid.');
+    fs.writeFileSync(path.join(mediaDir,id+'.jpg'),bytes,{mode:0o600});
+    return id;
+  }
 
   function createSession(res,user){
     for(const [token,session] of sessions)if(session.expires<=now())sessions.delete(token);
@@ -101,7 +116,7 @@ export function createSocialApp({
       next();
     }catch(error){next(error);}
   });
-  app.use(express.json({limit:'16kb',strict:true}));
+  app.use(express.json({limit:'2mb',strict:true}));
 
   app.post('/api/register',(req,res,next)=>{
     try{
@@ -165,6 +180,14 @@ export function createSocialApp({
       topics
     });
   });
+  route('get','/media/:id',(req,res)=>{
+    if(!/^[0-9a-f-]{36}$/i.test(req.params.id))throw fail(404,'Photo not found.');
+    const state=read(),post=state.posts.find(item=>item.mediaId===req.params.id);
+    if(!post)throw fail(404,'Photo not found.');
+    if(req.user.role!=='owner'&&post.authorId!==req.user.id&&!visible(state,post,req.user.id))throw fail(404,'Photo not found.');
+    const file=path.join(mediaDir,req.params.id+'.jpg');if(!fs.existsSync(file))throw fail(404,'Photo not found.');
+    res.type('image/jpeg').sendFile(file);
+  });
   route('get','/activity',(req,res)=>{
     const state=read();
     res.json({posts:state.posts.filter(post=>post.authorId===req.user.id).map(post=>privatePost(state,post)),appeals:state.appeals.filter(appeal=>appeal.authorId===req.user.id)});
@@ -177,7 +200,8 @@ export function createSocialApp({
     if(req.body.parentId){parent=getPost(state,req.body.parentId);if(parent.parentId||!visible(state,parent,req.user.id))throw fail(404,'Conversation unavailable.');}
     if(state.posts.some(post=>post.authorId===req.user.id&&post.text===text&&post.parentId===(req.body.parentId||null)))throw fail(409,'This message was already submitted.');
     if(state.posts.length>=20_000)throw fail(503,'Community post capacity reached for this beta.');
-    const post={id:randomUUID(),authorId:req.user.id,text,topic:req.body.topic,theme:req.body.theme||'none',parentId:parent?.id||null,status:'pending',createdAt:new Date(now()).toISOString(),version:1,reactions:[],saves:[],signals:[]};
+    const postId=randomUUID();
+    const post={id:postId,authorId:req.user.id,text,topic:req.body.topic,theme:req.body.theme||'none',parentId:parent?.id||null,status:'pending',createdAt:new Date(now()).toISOString(),version:1,reactions:[],saves:[],signals:[],mediaId:savePhoto(req.body.photoData,postId)};
     try{post.signals=screenContent(text);}catch{post.signals=['screening-unavailable'];}
     state.posts.push(post);audit(state,req.user.id,'submit',post.id,'Awaiting human review');write(state);res.status(201).json({post:privatePost(state,post)});
   });
