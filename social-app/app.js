@@ -30,7 +30,7 @@ export function createSocialApp({
   if(!inviteCode||String(inviteCode).length<10)throw new Error('KV_SOCIAL_INVITE_CODE must be configured for the invited beta.');
   const db=createFileStore({dataDir,ownerEmail,ownerPassword});
   db.bootstrap();
-  const mediaDir=path.join(dataDir,'media');fs.mkdirSync(mediaDir,{recursive:true});
+  const mediaDir=path.resolve(dataDir,'media');fs.mkdirSync(mediaDir,{recursive:true});
 
   const app=express(),sessions=new Map(),limits=new Map();
   const cookieName=production?'__Host-kv_social_session':'kv_social_session';
