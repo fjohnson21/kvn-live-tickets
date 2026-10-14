@@ -45,10 +45,28 @@ for(const b of document.querySelectorAll('[data-view]'))b.onclick=()=>{state.vie
 $('#compose').onclick=()=>compose();
 function compose(parent=null,edit=null){
  const root=showModal(edit?'Edit your message':parent?'Join the conversation':'Share something meaningful');root.append(node('p','muted','Your message remains private until a human reviewer approves it. Respectful disagreement is welcome.'));
- let photoInput=null;
+ let photoInput=null,videoInput=null,progress=null;
  const f=submitForm(root,edit?'Save for review':'Submit for review',async data=>{
-  const photoData=photoInput?.files?.[0]?await preparePhoto(photoInput.files[0]):'';
-  const body={text:data.get('text'),topic:data.get('topic')||parent?.topic||'Kingdom Culture',theme:data.get('theme')||'none',...(parent?{parentId:parent.id}:{}),...(photoData?{photoData}:{})};
+  const file=videoInput?.files?.[0],photo=photoInput?.files?.[0];
+  if(file&&photo)throw Error('Choose a video or a photo, not both.');
+  let videoId='';
+  if(file){
+    if(!state.videoEnabled)throw Error('Video uploads are not enabled yet.');
+    const inspected=await inspectVideo(file);
+    const grant=await api('/videos/start','POST',{name:file.name.slice(0,120),bytes:file.size,mime:file.type});
+    progress.textContent='Uploading video…';
+    await uploadVideo(file,grant,n=>progress.textContent='Uploading video… '+n+'%');
+    progress.textContent='Processing your video and thumbnail…';
+    let result=null;
+    for(let attempt=0;attempt<45;attempt++){
+      try{result=await api('/videos/'+encodeURIComponent(grant.videoId)+'/complete','POST',{poster:inspected.poster});break;}
+      catch(error){if(!error.message.includes('still processing'))throw error;await new Promise(resolve=>setTimeout(resolve,2000));}
+    }
+    if(!result)throw Error('Video is still processing. Try again after the upload finishes.');
+    videoId=result.videoId;
+  }
+  const photoData=photo?await preparePhoto(photo):'';
+  const body={text:data.get('text'),topic:data.get('topic')||parent?.topic||'Kingdom Culture',theme:data.get('theme')||'none',...(parent?{parentId:parent.id}:{}),...(photoData?{photoData}:{}),...(videoId?{videoId}:{})};
   await api(edit?`/posts/${edit.id}`:'/posts',edit?'PATCH':'POST',edit?{text:body.text}:body);await finish('Submitted for human review.');
  });const text=field(f.form,'Your message','text');text.value=edit?.text||'';text.placeholder='A testimony. A prayer request. A song. A little encouragement.';
  const count=node('p','count',`${text.value.length} / 2,000`);text.oninput=()=>count.textContent=`${text.value.length} / 2,000`;f.form.append(count);
@@ -56,6 +74,10 @@ function compose(parent=null,edit=null){
   field(f.form,'Feed','topic','select',['Kingdom Culture','Testimonies','Prayer Requests','Music','KV Live'].map(x=>[x,x]));
   field(f.form,'Visual style','theme','select',[['none','Text only'],['sound','Sound — monochrome'],['gather','Together — warm neutral'],['live','KV Live — deep red']]);
   const label=node('label','','Photo (optional)');label.htmlFor='post-photo';photoInput=node('input');photoInput.id='post-photo';photoInput.type='file';photoInput.accept='image/*';photoInput.setAttribute('aria-describedby','photo-note');f.form.append(label,photoInput,node('p','review-meta','Photos are resized on your phone and remain private until a moderator approves the post.'));f.form.lastChild.id='photo-note';
+  const vl=node('label','','Short video · up to 60 seconds (optional)');vl.htmlFor='post-video';
+  videoInput=node('input');videoInput.id='post-video';videoInput.type='file';videoInput.accept='video/mp4,video/quicktime,video/webm';videoInput.disabled=!state.videoEnabled;
+  progress=node('p','review-meta',state.videoEnabled?'Video stays private until a human reviewer approves the post. Choose either a photo or video.':'Video uploads are being prepared for the private beta. Photos and text are available.');
+  progress.setAttribute('role','status');f.form.append(vl,videoInput,progress);
  }
  f.finish();text.focus();
 }
