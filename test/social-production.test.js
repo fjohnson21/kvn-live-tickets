@@ -186,3 +186,28 @@ test('KV Social verifies email and supports one-time password recovery',async()=
     await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});
   }
 });
+
+
+test('KV Social Postgres store persists state and rejects stale writes',async t=>{
+  if(!process.env.TEST_DATABASE_URL)return t.skip('TEST_DATABASE_URL not configured');
+  const {createPostgresStore}=await import('../social-app/store.js');
+  const store=createPostgresStore({
+    connectionString:process.env.TEST_DATABASE_URL,
+    ownerEmail:'moderator@kv.test',
+    ownerPassword:'moderator-password-123'
+  });
+  try{
+    await store.bootstrap();
+    const first=await store.read();
+    first.audit.push({id:'pg-audit-1',actor:'test',action:'persist',targetId:'db',reason:'Postgres test',at:new Date().toISOString()});
+    await store.write(first);
+    const persisted=await store.read();
+    assert.ok(persisted.audit.some(item=>item.id==='pg-audit-1'));
+
+    const a=await store.read(),b=await store.read();
+    a.audit.push({id:'pg-audit-2',actor:'test',action:'concurrency',targetId:'db',reason:'first writer',at:new Date().toISOString()});
+    await store.write(a);
+    b.audit.push({id:'pg-audit-stale',actor:'test',action:'concurrency',targetId:'db',reason:'stale writer',at:new Date().toISOString()});
+    await assert.rejects(()=>store.write(b),error=>error?.status===409);
+  }finally{await store.close();}
+});
