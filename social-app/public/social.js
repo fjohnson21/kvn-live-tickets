@@ -15,6 +15,21 @@ function field(form,label,name,type='textarea',options=[]){const id='field-'+nam
 }
 function submitForm(root,text,handler){const form=node('form');const error=node('p','error');error.setAttribute('role','alert');const submit=node('button','primary',text);submit.type='submit';const actions=node('div','form-actions');actions.append(submit);form.addEventListener('submit',async e=>{e.preventDefault();submit.disabled=true;error.textContent='';try{await handler(new FormData(form));}catch(err){error.textContent=err.message;}finally{submit.disabled=false;}});root.append(form);return {form,finish(){form.append(error,actions);},actions};}
 async function act(fn){try{await fn()}catch(e){toast(e.message)}}
+async function preparePhoto(file){
+ if(!file||!file.size)return '';
+ if(!String(file.type||'').startsWith('image/'))throw Error('Choose a photo file.');
+ if(file.size>10*1024*1024)throw Error('Choose a photo smaller than 10 MB.');
+ const url=URL.createObjectURL(file);
+ try{
+  const image=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error('Unable to read this photo.'));img.src=url;});
+  const max=1280,scale=Math.min(1,max/Math.max(image.naturalWidth,image.naturalHeight));
+  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+  const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.8));
+  if(!blob||blob.size>1_200_000)throw Error('This photo is still too large after processing. Try a smaller image.');
+  return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Unable to prepare this photo.'));reader.readAsDataURL(blob);});
+ }finally{URL.revokeObjectURL(url);}
+}
 function finish(message){$('#modal').close();toast(message);return render();}
 function loginReady(s){state.session=s;state.view='feed';state.filter='All';state.reviewTab='Pending';$('#login').hidden=true;$('#shell').hidden=false;$('#signout').hidden=false;$('#owner-nav').hidden=s.role!=='owner';$('#my-avatar').textContent=s.user.initials;return render();}
 function authView(register=false){$('#login-form').hidden=register;$('#register-form').hidden=!register;$('#show-login').classList.toggle('active',!register);$('#show-register').classList.toggle('active',register);$('#login-error').textContent='';$('#register-error').textContent='';}
@@ -26,12 +41,18 @@ for(const b of document.querySelectorAll('[data-view]'))b.onclick=()=>{state.vie
 $('#compose').onclick=()=>compose();
 function compose(parent=null,edit=null){
  const root=showModal(edit?'Edit your message':parent?'Join the conversation':'Share something meaningful');root.append(node('p','muted','Your message remains private until a human reviewer approves it. Respectful disagreement is welcome.'));
+ let photoInput=null;
  const f=submitForm(root,edit?'Save for review':'Submit for review',async data=>{
-  const body={text:data.get('text'),topic:data.get('topic')||parent?.topic||'Community',theme:data.get('theme')||'none',...(parent?{parentId:parent.id}:{})};
+  const photoData=photoInput?.files?.[0]?await preparePhoto(photoInput.files[0]):'';
+  const body={text:data.get('text'),topic:data.get('topic')||parent?.topic||'Kingdom Culture',theme:data.get('theme')||'none',...(parent?{parentId:parent.id}:{}),...(photoData?{photoData}:{})};
   await api(edit?`/posts/${edit.id}`:'/posts',edit?'PATCH':'POST',edit?{text:body.text}:body);await finish('Submitted for human review.');
- });const text=field(f.form,'Your message','text');text.value=edit?.text||'';text.placeholder='A song. A story. A little encouragement.';
+ });const text=field(f.form,'Your message','text');text.value=edit?.text||'';text.placeholder='A testimony. A prayer request. A song. A little encouragement.';
  const count=node('p','count',`${text.value.length} / 2,000`);text.oninput=()=>count.textContent=`${text.value.length} / 2,000`;f.form.append(count);
- if(!parent&&!edit){field(f.form,'Topic','topic','select',['Community','Music','KV Live','Purpose'].map(x=>[x,x]));field(f.form,'Visual style','theme','select',[['none','Text only'],['sound','Sound — monochrome'],['gather','Together — warm neutral'],['live','KV Live — deep red']]);}
+ if(!parent&&!edit){
+  field(f.form,'Feed','topic','select',['Kingdom Culture','Testimonies','Prayer Requests','Music','KV Live'].map(x=>[x,x]));
+  field(f.form,'Visual style','theme','select',[['none','Text only'],['sound','Sound — monochrome'],['gather','Together — warm neutral'],['live','KV Live — deep red']]);
+  const label=node('label','','Photo (optional)');label.htmlFor='post-photo';photoInput=node('input');photoInput.id='post-photo';photoInput.type='file';photoInput.accept='image/*';photoInput.setAttribute('aria-describedby','photo-note');f.form.append(label,photoInput,node('p','review-meta','Photos are resized on your phone and remain private until a moderator approves the post.'));f.form.lastChild.id='photo-note';
+ }
  f.finish();text.focus();
 }
 function guidelines(){const r=showModal('A community with purpose.');
@@ -58,7 +79,7 @@ async function render(){
 function artistModal(name){const root=showModal(name);root.append(node('p','','Featured worship leader · Editorial sample spotlight'),node('p','','This profile is a demonstration of artist discovery. It is not managed by the artist and contains no fabricated artist posts or follower counts.'),button('View artist posts','primary',()=>{state.view='feed';state.filter=name;$('#modal').close();act(render)}),button('Start a music conversation','secondary',()=>compose()));}
 function renderArtists(){const r=$('#artist-list'),mobile=$('#mobile-artists');r.replaceChildren();mobile.replaceChildren();mobile.hidden=state.view!=='feed';for(const name of ['Imani Raeford','Jalisa Faye','Yael Hilton']){const b=button('','artist',()=>artistModal(name));b.append(node('span','avatar light',name.split(' ').map(n=>n[0]).join('')));const text=node('div');text.append(node('strong','',name),node('small','','Worship · Artist spotlight'));b.append(text,node('span','','↗'));r.append(b);mobile.append(button(name+' ↗','chip',()=>artistModal(name),'Discover '+name));}}
 function postCard(p){const card=node('article','post');const head=node('div','post-head');const avatar=button(p.author.initials,'avatar',()=>profile(p.author),'View profile for '+p.author.name);const by=node('div','post-byline');by.append(button(p.author.name,'author-button',()=>profile(p.author)),node('div','post-meta',p.sample?'Editorial sample · Not a real member post':new Date(p.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · Community'));head.append(avatar,by,node('span','tag',p.topic));card.append(head);
- if(p.theme!=='none'){const art=node('div','art '+p.theme);art.append(node('span','art-kicker',p.eyebrow||'A MOMENT FOR THE COMMUNITY'),node('div','art-title',p.title||'Faith. Purpose.\nCommunity. Impact.'),node('span','art-footer',p.artist||'KINGDOM VIBE NETWORK'));card.append(art);}
+ if(p.mediaUrl){const img=node('img','post-photo');img.src=p.mediaUrl;img.alt='Photo shared with this KV Social post';img.loading='lazy';card.append(img);}else if(p.theme!=='none'){const art=node('div','art '+p.theme);art.append(node('span','art-kicker',p.eyebrow||'A MOMENT FOR THE COMMUNITY'),node('div','art-title',p.title||'Faith. Purpose.\nCommunity. Impact.'),node('span','art-footer',p.artist||'KINGDOM VIBE NETWORK'));card.append(art);}
  card.append(node('p','post-text',p.text));const tools=node('div','post-tools');
  const reaction=button('','tool'+(p.liked?' on':''),()=>act(async()=>{await api(`/posts/${p.id}/react`,'POST',{});await render()}),p.liked?'Appreciated':'Appreciate');reaction.setAttribute('aria-pressed',String(p.liked));reaction.append(node('span','symbol',p.liked?'♥':'♡'),node('span','',p.reactions?String(p.reactions):'Appreciate'));
  const comments=state.feed.posts.filter(c=>c.parentId===p.id);const conversation=button('','tool',()=>conversationModal(p),'View conversation');conversation.append(node('span','symbol','◯'),node('span','',comments.length?String(comments.length):'Respond'));
@@ -85,7 +106,7 @@ async function moderation(renderId){heading('The review desk.','Context before c
  if(!posts.length)$('#content').append(node('div','empty','All clear in this queue.'));
  for(const p of posts){const c=node('article','review-card');c.append(node('span','status '+p.status,p.status),node('p','review-meta',p.author.name+(p.parentId?' · Comment':'')),node('p','',p.text),node('p','review-note',p.signals.length?'Review signals: '+p.signals.join(', '):'No automated signals. Human context review is still required.'),button('Review post','secondary',()=>reviewModal(p,data)));$('#content').append(c);}
 }
-function reviewModal(p,data,appeal=null){const r=showModal(appeal?'Reconsider this decision.':'Review with context.');r.append(node('p','',p.text),node('p','review-meta',`Author: ${p.author.name} · Version ${p.version}`));if(p.parentId){const parent=data.posts.find(x=>x.id===p.parentId);r.append(node('p','review-note','Parent conversation: '+(parent?.text||'Unavailable')));}
+function reviewModal(p,data,appeal=null){const r=showModal(appeal?'Reconsider this decision.':'Review with context.');if(p.mediaUrl){const img=node('img','post-photo');img.src=p.mediaUrl;img.alt='Photo submitted with this post';r.append(img);}r.append(node('p','',p.text),node('p','review-meta',`Author: ${p.author.name} · Version ${p.version}`));if(p.parentId){const parent=data.posts.find(x=>x.id===p.parentId);r.append(node('p','review-note','Parent conversation: '+(parent?.text||'Unavailable')));}
  if(appeal)r.append(node('p','review-note','Author’s appeal: '+appeal.reason));else{r.append(node('p','review-note','Signals are not proof. Respectful criticism, disagreement, and negative reviews may remain.'));for(const report of data.reports.filter(x=>x.postId===p.id&&x.status==='open'))r.append(node('p','review-note',`Private report · ${report.category}: ${report.reason}`));}
  const form=node('form');const reason=field(form,'Decision reason','reason');reason.maxLength=500;reason.placeholder='Explain the policy and context. The author will see this reason.';const error=node('p','error');error.setAttribute('role','alert');const actions=node('div','form-actions');
  for(const [action,label]of (appeal?[['restore','Restore post'],['uphold','Uphold removal']]:[['approve','Approve post'],['hide','Hide post'],['remove','Remove post']]))actions.append(button(label,action==='approve'||action==='restore'?'primary':'secondary',async()=>{
