@@ -211,3 +211,8 @@ test('KV Social Postgres store persists state and rejects stale writes',async t=
     await assert.rejects(()=>store.write(b),error=>error?.status===409);
   }finally{await store.close();}
 });
+
+test('production KV Social refuses local-file persistence and missing verification mail',()=>{
+  assert.throws(()=>createSocialApp({dataDir:'/tmp/should-not-start',production:true,ownerEmail,ownerPassword,inviteCode,resendApiKey:'dummy'}),/DATABASE_URL/);
+  assert.throws(()=>createSocialApp({databaseUrl:'postgres://localhost/test',production:true,ownerEmail,ownerPassword,inviteCode}),/transactional email/);
+});
