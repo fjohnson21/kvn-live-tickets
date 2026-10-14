@@ -42,3 +42,29 @@ This file-backed store is intentionally a single-instance beta foundation. Atomi
 ## Release rule
 
 Do not expose this service publicly until CI passes, owner credentials/invite code are set, privacy/community terms are approved, a named moderator is scheduled, and a separate Render service or verified KVN hub route is configured. No production KV Live ticket deployment is required for this branch.
+
+
+## Short-video posts — video-first KV Social beta
+
+The new video integration is optional and **off until all dedicated Bunny Stream credentials are configured**. It stores provider video IDs, a small JPEG poster and moderation records in Social state. Raw video uploads go from the member browser directly to Bunny's resumable upload endpoint, never through Render, KV Tix or Postgres.
+
+### Social service secrets
+- BUNNY_STREAM_LIBRARY_ID: numeric video library ID
+- BUNNY_STREAM_API_KEY: video library API key (never send to browser)
+- BUNNY_STREAM_TOKEN_SECURITY_KEY: distinct Stream embed token security key (never send to browser)
+
+### Provider safeguards before any real uploads
+- In Bunny Stream Security, enable **Embed View Token Authentication**. The app issues signed ten-minute player URLs only to approved viewers, authors and moderators.
+- Configure the library's allowed embed domains for the approved Social beta host and social.kvnlive.com. Verify an **unsigned embed URL returns 403**.
+- Protect underlying direct-media and thumbnails at the CDN level, not only the embed iframe. Signed embed access alone is not full media privacy.
+- Block direct URL access where appropriate; test the CDN Pull Zone options, referrer settings and token configuration together, including previews.
+- Disable early public play of originals before moderation. Never assume a provider GUID is secret or sufficient access control.
+- Set monthly spend alerts and a policy for deleting orphaned uploads. Uploads rejected for duration can still accumulate storage charges.
+
+### Behavior and testing
+- Maximum 60-second posts, upload limit 100 MB. MP4, MOV, and WebM accepted pending real-device validation.
+- Generated JPEG thumbnail stays behind a Social authorization endpoint until approval.
+- Every post and revision still requires human review; author/moderator may inspect pending footage.
+- Published feed uses thumbnail-first load, muted visible-card autoplay, tap-to-play, one active player and Data Saver.
+- Validate resumable TUS on iPhone Safari/Android Chrome with a configured Bunny test library before release.
+- Remaining: production media retention/cleanup, secure provider webhook handling, normalized Postgres schema, virus/abuse review and cost telemetry. This PR does not enable Go Live.
