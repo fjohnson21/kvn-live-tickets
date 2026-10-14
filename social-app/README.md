@@ -1,6 +1,6 @@
 # KV Social — invited beta production foundation
 
-This service converts the reviewed KV Social pilot into a real-account, persistent invited beta while keeping all KV Live ticket/order data isolated.
+This service converts the reviewed KV Social pilot into a real-account, Postgres-backed invited beta while keeping all KV Live ticket/order data isolated.
 
 ## What is real in this branch
 
@@ -8,7 +8,9 @@ This service converts the reviewed KV Social pilot into a real-account, persiste
 - Invite-code gated registration and explicit community agreement.
 - Passwords stored only as salted scrypt hashes.
 - Secure HTTP-only sessions with CSRF and same-origin write protection.
-- Persistent Social state in a dedicated `kv-social.json` file under `KV_SOCIAL_DATA_DIR` / `DATA_DIR`.
+- Production Social state stored in Postgres through `DATABASE_URL` with optimistic revision checks.
+- Local automated tests may use the isolated file store when `DATABASE_URL` is absent.
+- Verification and password-reset tokens are stored only as hashes and expire after use/time limits.
 - Editable member display name and bio.
 - First-release feeds: Kingdom Culture, Testimonies, Prayer Requests, Music and KV Live.
 - Text and phone-processed photo posts; pending photos stay private until moderator approval.
@@ -23,13 +25,15 @@ Ticketing, checkout, customer records, marketing consent and owner dashboard aut
 
 ```
 NODE_ENV=production
-KV_SOCIAL_DATA_DIR=/var/data/social
+DATABASE_URL=<Render Postgres connection string>
 KV_SOCIAL_OWNER_EMAIL=<moderator email>
 KV_SOCIAL_OWNER_PASSWORD=<12+ character bootstrap password>
 KV_SOCIAL_INVITE_CODE=<private invited-beta code>
+RESEND_API_KEY=<sending-only key>
+KV_SOCIAL_EMAIL_FROM=KV Social <social@tickets.kvnlive.com>
 ```
 
-Run with `node social-app/server.js`. For a separate Render service, give this service its own persistent disk or dedicated subdirectory. Do not point it at the KV Live ticket JSON store.
+Run with `node social-app/server.js` as a separate Render service. Do not point it at the KV Live ticket JSON store or reuse the ticket service process.
 
 ## Beta boundary
 

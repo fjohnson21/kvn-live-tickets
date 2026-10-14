@@ -135,3 +135,84 @@ test('KV Social rejects unsafe cross-origin writes and protects moderation',asyn
     await stop(runtime.server);fs.rmSync(dir,{recursive:true,force:true});
   }
 });
+
+
+test('KV Social verifies email and supports one-time password recovery',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'kv-social-auth-'));
+  const sent=[];
+  const app=createSocialApp({
+    dataDir:dir,ownerEmail,ownerPassword,inviteCode,production:false,
+    mailer:async message=>{sent.push(message);return {id:'test-email'};}
+  });
+  const server=app.listen(0,'127.0.0.1');await once(server,'listening');
+  const base=`http://127.0.0.1:${server.address().port}`;
+  const request=async(pathname,method='GET',body,session={})=>{
+    const headers={Origin:base};if(body!==undefined)headers['Content-Type']='application/json';
+    if(session.cookie)headers.Cookie=session.cookie;if(session.csrf)headers['X-CSRF-Token']=session.csrf;
+    const response=await fetch(base+'/api'+pathname,{method,headers,body:body===undefined?undefined:JSON.stringify(body),redirect:'manual'});
+    let data={};const type=response.headers.get('content-type')||'';if(type.includes('application/json'))data=await response.json();
+    const setCookie=response.headers.get('set-cookie');if(setCookie)session.cookie=setCookie.split(';')[0];if(data.csrf)session.csrf=data.csrf;
+    return {status:response.status,data,location:response.headers.get('location')};
+  };
+  try{
+    const member={};
+    let response=await request('/register','POST',{name:'Verified Member',email:'verify@example.com',password:'member-password-123',inviteCode,communityAgreement:true},member);
+    assert.equal(response.status,201);assert.equal(response.data.verificationRequired,true);assert.equal(sent.length,1);
+    response=await request('/login','POST',{email:'verify@example.com',password:'member-password-123'},member);
+    assert.equal(response.status,403);
+
+    const verifyToken=new URL(sent[0].url).searchParams.get('token');assert.ok(verifyToken);
+    response=await request('/verify-email?token='+encodeURIComponent(verifyToken),'GET',undefined,member);
+    assert.equal(response.status,302);assert.equal(response.location,'/?verified=1');
+
+    response=await request('/login','POST',{email:'verify@example.com',password:'member-password-123'},member);
+    assert.equal(response.status,200);assert.equal(response.data.user.emailVerified,true);
+
+    response=await request('/password/forgot','POST',{email:'verify@example.com'});
+    assert.equal(response.status,200);assert.equal(sent.length,2);
+    const resetToken=new URL(sent[1].url).searchParams.get('reset');assert.ok(resetToken);
+
+    response=await request('/password/reset','POST',{token:resetToken,password:'new-member-password-456'});
+    assert.equal(response.status,200);
+    response=await request('/password/reset','POST',{token:resetToken,password:'another-password-789'});
+    assert.equal(response.status,400);
+
+    response=await request('/feed','GET',undefined,member);
+    assert.equal(response.status,401,'password reset revokes active sessions');
+
+    const fresh={};response=await request('/login','POST',{email:'verify@example.com',password:'new-member-password-456'},fresh);
+    assert.equal(response.status,200);
+  }finally{
+    await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});
+  }
+});
+
+
+test('KV Social Postgres store persists state and rejects stale writes',async t=>{
+  if(!process.env.TEST_DATABASE_URL)return t.skip('TEST_DATABASE_URL not configured');
+  const {createPostgresStore}=await import('../social-app/store.js');
+  const store=createPostgresStore({
+    connectionString:process.env.TEST_DATABASE_URL,
+    ownerEmail:'moderator@kv.test',
+    ownerPassword:'moderator-password-123'
+  });
+  try{
+    await store.bootstrap();
+    const first=await store.read();
+    first.audit.push({id:'pg-audit-1',actor:'test',action:'persist',targetId:'db',reason:'Postgres test',at:new Date().toISOString()});
+    await store.write(first);
+    const persisted=await store.read();
+    assert.ok(persisted.audit.some(item=>item.id==='pg-audit-1'));
+
+    const a=await store.read(),b=await store.read();
+    a.audit.push({id:'pg-audit-2',actor:'test',action:'concurrency',targetId:'db',reason:'first writer',at:new Date().toISOString()});
+    await store.write(a);
+    b.audit.push({id:'pg-audit-stale',actor:'test',action:'concurrency',targetId:'db',reason:'stale writer',at:new Date().toISOString()});
+    await assert.rejects(()=>store.write(b),error=>error?.status===409);
+  }finally{await store.close();}
+});
+
+test('production KV Social refuses local-file persistence and missing verification mail',()=>{
+  assert.throws(()=>createSocialApp({dataDir:'/tmp/should-not-start',production:true,ownerEmail,ownerPassword,inviteCode,resendApiKey:'dummy'}),/DATABASE_URL/);
+  assert.throws(()=>createSocialApp({databaseUrl:'postgres://localhost/test',production:true,ownerEmail,ownerPassword,inviteCode}),/transactional email/);
+});
