@@ -19,16 +19,14 @@ async function preparePhoto(file){
  if(!file||!file.size)return '';
  if(!String(file.type||'').startsWith('image/'))throw Error('Choose a photo file.');
  if(file.size>10*1024*1024)throw Error('Choose a photo smaller than 10 MB.');
- const url=URL.createObjectURL(file);
- try{
-  const image=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error('Unable to read this photo.'));img.src=url;});
-  const max=1280,scale=Math.min(1,max/Math.max(image.naturalWidth,image.naturalHeight));
-  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
-  const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,canvas.width,canvas.height);
-  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.8));
-  if(!blob||blob.size>1_200_000)throw Error('This photo is still too large after processing. Try a smaller image.');
-  return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Unable to prepare this photo.'));reader.readAsDataURL(blob);});
- }finally{URL.revokeObjectURL(url);}
+ const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Unable to read this photo.'));reader.readAsDataURL(file);});
+ const image=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error('Unable to read this photo.'));img.src=source;});
+ const max=1280,scale=Math.min(1,max/Math.max(image.naturalWidth,image.naturalHeight));
+ const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+ const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,canvas.width,canvas.height);
+ const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.8));
+ if(!blob||blob.size>1_200_000)throw Error('This photo is still too large after processing. Try a smaller image.');
+ return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Unable to prepare this photo.'));reader.readAsDataURL(blob);});
 }
 function finish(message){$('#modal').close();toast(message);return render();}
 function loginReady(s){state.session=s;state.view='feed';state.filter='All';state.reviewTab='Pending';$('#login').hidden=true;$('#shell').hidden=false;$('#signout').hidden=false;$('#owner-nav').hidden=s.role!=='owner';$('#my-avatar').textContent=s.user.initials;return render();}
