@@ -85,7 +85,7 @@ export function createSocialApp({
     id:post.id,authorId:post.authorId,author:publicUser(getUser(state,post.authorId)||{id:'unknown',name:'Unknown',role:'system'}),
     text:post.text,topic:post.topic,artist:post.artist||'',theme:post.theme||'none',title:post.title||'',eyebrow:post.eyebrow||'',
     sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,mediaUrl:post.mediaId?`/api/media/${post.mediaId}`:'',
-    hasVideo:!!post.videoId,videoPosterUrl:post.videoId?`/api/videos/${post.videoId}/poster`:'',videoDuration:post.videoDuration||null,reactions:(post.reactions||[]).length,
+    hasVideo:!!post.videoId,videoId:post.videoId||null,videoPosterUrl:post.videoId?`/api/videos/${post.videoId}/poster`:'',videoDuration:post.videoDuration||null,reactions:(post.reactions||[]).length,
     liked:(post.reactions||[]).includes(userId),saved:(post.saves||[]).includes(userId),version:post.version
   });
   const privatePost=(state,post)=>({...publicPost(state,post,''),status:post.status,signals:post.signals||[],reason:post.reason||'',version:post.version});
