@@ -8,3 +8,5 @@
 @media(max-width:1150px){.mobile-artists{display:flex}}
 
 .auth-switch{display:flex;gap:8px;margin:22px 0 8px}.auth-switch button{flex:1;border:1px solid var(--line);background:white;font-size:11px}.auth-switch button.active{background:var(--ink);color:white;border-color:var(--ink)}.auth-form[hidden]{display:none}.agreement{display:flex;gap:10px;align-items:flex-start;font-size:11px;line-height:1.5;margin:18px 0}.agreement input{width:18px;min-height:18px;margin:0;flex:0 0 18px}.profile-card{background:white;border:1px solid var(--line);border-radius:12px;padding:22px}.profile-card h2{margin:8px 0}.profile-card .avatar{margin-bottom:8px}
+
+.post-photo{display:block;width:100%;max-height:620px;object-fit:cover;background:#eceae6;border:0}.modal-body .post-photo,dialog .post-photo{border-radius:10px;max-height:420px;margin:10px 0 18px}input[type=file]{padding:10px;background:white;font-size:11px}
