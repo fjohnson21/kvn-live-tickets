@@ -193,7 +193,7 @@ export function createSocialApp({
     res.json({posts:state.posts.filter(post=>post.authorId===req.user.id).map(post=>privatePost(state,post)),appeals:state.appeals.filter(appeal=>appeal.authorId===req.user.id)});
   });
   route('post','/posts',(req,res)=>{
-    active(req);exact(req.body,['text','topic','theme','parentId']);rate('post:'+req.user.id,8);
+    active(req);exact(req.body,['text','topic','theme','parentId','photoData']);rate('post:'+req.user.id,8);
     const text=validateText(req.body.text);if(!topics.includes(req.body.topic))throw fail(400,'Choose a topic.');
     if(req.body.theme&&!['none','sound','gather','live'].includes(req.body.theme))throw fail(400,'Choose a curated visual.');
     const state=read();let parent=null;
