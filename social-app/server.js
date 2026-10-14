@@ -12,4 +12,5 @@ const app=createSocialApp({
   emailFrom:process.env.KV_SOCIAL_EMAIL_FROM||'KV Social <social@tickets.kvnlive.com>',
   production:process.env.NODE_ENV==='production'
 });
+await app.locals.ready;
 app.listen(port,'0.0.0.0',()=>console.log(`KV Social listening on port ${port}`));
