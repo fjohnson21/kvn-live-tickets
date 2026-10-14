@@ -7,7 +7,7 @@ export function validateText(value,max=2000){
  const text=normalize(value);
  if(!text||text.length>max)throw new Error(`Use between 1 and ${max} characters.`);
  if(/[<>\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/.test(text))throw new Error('Use plain text without markup or hidden controls.');
- if(/(?:https?:|www\.|javascript:|data:|\b[a-z0-9-]+\.(?:com|net|org|io|co)\b)/i.test(text))throw new Error('Links are disabled in this pilot.');
+ if(/(?:https?:|www\.|javascript:|data:|\b[a-z0-9-]+\.(?:com|net|org|io|co)\b)/i.test(text))throw new Error('Links are disabled in this beta.');
  return text;
 }
 export function screenContent(value){
