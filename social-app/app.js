@@ -32,6 +32,7 @@ export function createSocialApp({
   now=Date.now
 }={}){
   if(!inviteCode||String(inviteCode).length<10)throw new Error('KV_SOCIAL_INVITE_CODE must be configured for the invited beta.');
+  if(production&&!databaseUrl)throw new Error('DATABASE_URL is required for KV Social production.');
   const db=databaseUrl
     ? createPostgresStore({connectionString:databaseUrl,ownerEmail,ownerPassword})
     : createFileStore({dataDir,ownerEmail,ownerPassword});
