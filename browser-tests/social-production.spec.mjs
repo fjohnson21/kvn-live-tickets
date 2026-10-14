@@ -18,10 +18,10 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
     const page=await memberContext.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
     await page.goto(base);
     await page.getByRole('button',{name:'Create account'}).click();
-    await page.getByLabel('Display name').fill('Jordan Member');
-    await page.getByLabel('Email').fill('jordan@example.com');
-    await page.getByLabel('Password').fill('member-password-123');
-    await page.getByLabel('Beta invitation code').fill(inviteCode);
+    await page.locator('#register-name').fill('Jordan Member');
+    await page.locator('#register-email').fill('jordan@example.com');
+    await page.locator('#register-password').fill('member-password-123');
+    await page.locator('#invite-code').fill(inviteCode);
     await page.getByLabel(/I agree to participate respectfully/).check();
     await page.getByRole('button',{name:/Create my account/}).click();
     await page.getByRole('heading',{name:'Your people. Your purpose.'}).waitFor();
@@ -47,11 +47,11 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
 
     const ownerContext=await browser.newContext({viewport:{width:390,height:844}});
     const owner=await ownerContext.newPage();await owner.goto(base);
-    await owner.getByLabel('Email').fill(ownerEmail);
-    await owner.getByLabel('Password').fill(ownerPassword);
+    await owner.locator('#login-email').fill(ownerEmail);
+    await owner.locator('#login-password').fill(ownerPassword);
     await owner.getByRole('button',{name:/Enter KV Social/}).click();
     await owner.getByRole('button',{name:'Review desk'}).click();
-    await owner.getByRole('button',{name:'Review post'}).filter({visible:true}).last().click().catch(async()=>owner.getByRole('button',{name:'Review post'}).first().click());
+    await owner.getByRole('button',{name:'Review post'}).first().click();
     await owner.getByLabel('Decision reason').fill('Approved for invited beta.');
     await owner.getByRole('button',{name:'Approve post'}).click();
     await owner.getByText('Decision recorded.').waitFor();
