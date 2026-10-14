@@ -10,6 +10,9 @@ This service converts the reviewed KV Social pilot into a real-account, persiste
 - Secure HTTP-only sessions with CSRF and same-origin write protection.
 - Persistent Social state in a dedicated `kv-social.json` file under `KV_SOCIAL_DATA_DIR` / `DATA_DIR`.
 - Editable member display name and bio.
+- First-release feeds: Kingdom Culture, Testimonies, Prayer Requests, Music and KV Live.
+- Text and phone-processed photo posts; pending photos stay private until moderator approval.
+- Static KV Live access from the Social experience.
 - Persistent posts, comments, reactions, saves, blocks, reports, moderation decisions, suspensions, appeals and audit history.
 - Existing human-review-first moderation policy and mobile UI.
 - Dedicated moderator account bootstrapped from environment secrets.
@@ -30,7 +33,7 @@ Run with `node social-app/server.js`. For a separate Render service, give this s
 
 ## Beta boundary
 
-This file-backed store is intentionally a single-instance beta foundation. Atomic replacement protects each persisted write on one Node process, but it is not a multi-instance transactional database. Before broad public scale, migrate the same Social data model to Postgres, add verified-email/recovery flows, moderator MFA, media upload quarantine/review, backups/restore exercises, distributed abuse controls and operational monitoring.
+This file-backed store is intentionally a single-instance beta foundation. Atomic replacement protects each persisted write on one Node process, but it is not a multi-instance transactional database. Before broad public scale, migrate the same Social data model to Postgres, add verified-email/recovery flows, moderator MFA, expanded media/video pipeline, backups/restore exercises, distributed abuse controls and operational monitoring.
 
 ## Release rule
 
