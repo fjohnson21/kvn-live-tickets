@@ -18,7 +18,7 @@ jobs:
           node-version: 20
       - run: npm install --package-lock-only --ignore-scripts
       - run: |
-          if git diff --quiet -- package-lock.json && [ -f package-lock.json ]; then
+          if [ -z "$(git status --porcelain -- package-lock.json)" ]; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
