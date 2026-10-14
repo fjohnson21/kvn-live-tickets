@@ -153,7 +153,7 @@ export function createSocialApp({
       state.users.push(user);audit(state,user.id,'register',user.id,'Invited beta account created');
       let verificationToken='';
       if(verificationEnabled)verificationToken=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);
-      await await write(state);
+      await write(state);
       if(verificationEnabled){
         let delivered=true;
         try{await sendAccountEmail({to:user.email,name:user.name,kind:'verify',url:`${requestOrigin(req)}/api/verify-email?token=${encodeURIComponent(verificationToken)}`});}catch{delivered=false;}
@@ -181,7 +181,7 @@ export function createSocialApp({
       await ready;rate('verify-resend:'+req.ip,4,60*60*1000);exact(req.body,['email']);
       const email=normalizeEmail(req.body.email),state=await read(),user=state.users.find(item=>item.email===email&&item.role==='member');
       if(user&&user.emailVerified!==true&&sendAccountEmail){
-        const token=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);await await write(state);
+        const token=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);await write(state);
         try{await sendAccountEmail({to:user.email,name:user.name,kind:'verify',url:`${requestOrigin(req)}/api/verify-email?token=${encodeURIComponent(token)}`});}catch{}
       }
       res.json({ok:true});
@@ -194,7 +194,7 @@ export function createSocialApp({
       const state=await read(),record=tokenRecord(state,'emailVerificationTokens',raw);
       if(!record)return res.redirect('/?verified=invalid');
       const user=getUser(state,record.userId);if(!user)return res.redirect('/?verified=invalid');
-      record.usedAt=new Date(now()).toISOString();user.emailVerified=true;audit(state,user.id,'email-verified',user.id,'Member verified email');await await write(state);
+      record.usedAt=new Date(now()).toISOString();user.emailVerified=true;audit(state,user.id,'email-verified',user.id,'Member verified email');await write(state);
       res.redirect('/?verified=1');
     }catch(error){next(error);}
   });
@@ -204,7 +204,7 @@ export function createSocialApp({
       await ready;rate('password-forgot:'+req.ip,5,60*60*1000);exact(req.body,['email']);
       const email=normalizeEmail(req.body.email),state=await read(),user=state.users.find(item=>item.email===email&&['member','owner'].includes(item.role));
       if(user&&user.emailVerified===true&&sendAccountEmail){
-        const token=issueToken(state,'passwordResetTokens',user.id,60*60*1000);await await write(state);
+        const token=issueToken(state,'passwordResetTokens',user.id,60*60*1000);await write(state);
         try{await sendAccountEmail({to:user.email,name:user.name,kind:'reset',url:`${requestOrigin(req)}/?reset=${encodeURIComponent(token)}`});}catch{}
       }
       res.json({ok:true});
@@ -217,7 +217,7 @@ export function createSocialApp({
       const raw=String(req.body.token||''),password=validatePassword(req.body.password),state=await read(),record=tokenRecord(state,'passwordResetTokens',raw);
       if(!record)throw fail(400,'This password reset link is invalid or expired.');
       const user=getUser(state,record.userId);if(!user)throw fail(400,'This password reset link is invalid or expired.');
-      user.passwordHash=hashPassword(password);record.usedAt=new Date(now()).toISOString();audit(state,user.id,'password-reset',user.id,'Member reset password');await await write(state);
+      user.passwordHash=hashPassword(password);record.usedAt=new Date(now()).toISOString();audit(state,user.id,'password-reset',user.id,'Member reset password');await write(state);
       for(const [token,session] of sessions)if(session.userId===user.id)sessions.delete(token);
       res.json({ok:true});
     }catch(error){next(error);}
