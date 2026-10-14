@@ -10,7 +10,7 @@ const systemUsers=[
 ];
 const seedPosts=[
   {id:'sample-1',authorId:'editorial',topic:'Music',artist:'Imani Raeford',theme:'sound',text:'A voice. A moment. A fresh fire. Our artist spotlight celebrates Imani Raeford. What song helps you reconnect with your purpose?',title:'A sound that\nstays with you.',eyebrow:'ARTIST SPOTLIGHT',createdAt:'2026-10-11T14:30:00.000Z'},
-  {id:'sample-2',authorId:'community',topic:'Community',theme:'gather',text:'A room full of people you have never met can still feel like family. What makes a worship experience feel like home to you?',title:'Come as you are.\nLeave connected.',eyebrow:'COMMUNITY NOTES',createdAt:'2026-10-11T14:10:00.000Z'},
+  {id:'sample-2',authorId:'community',topic:'Kingdom Culture',theme:'gather',text:'A room full of people you have never met can still feel like family. What makes a worship experience feel like home to you?',title:'Come as you are.\nLeave connected.',eyebrow:'COMMUNITY NOTES',createdAt:'2026-10-11T14:10:00.000Z'},
   {id:'sample-3',authorId:'editorial',topic:'KV Live',artist:'Jalisa Faye',theme:'live',text:'The voices. The community. The purpose. KV Live brings Jalisa Faye, Yael Hilton, Imani Raeford and the KVN community together on November 21.',title:'Faith in the room.\nPurpose in the sound.',eyebrow:'KV LIVE / NOVEMBER 21',createdAt:'2026-10-11T13:50:00.000Z'}
 ];
 
