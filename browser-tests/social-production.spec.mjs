@@ -42,7 +42,8 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
     await page.getByRole('button',{name:'Share something'}).click();
     await page.getByLabel('Your message').fill('Grateful for this community and excited for KV Live.');
     await page.locator('#field-topic').selectOption('KV Live');
-    await page.locator('#post-photo').setInputFiles({name:'sample.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#555"/></svg>')});
+    const jpegBase64=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=80;canvas.height=80;const ctx=canvas.getContext('2d');ctx.fillStyle='#555';ctx.fillRect(0,0,80,80);return canvas.toDataURL('image/jpeg',0.9).split(',')[1];});
+    await page.locator('#post-photo').setInputFiles({name:'sample.jpg',mimeType:'image/jpeg',buffer:Buffer.from(jpegBase64,'base64')});
     await page.getByRole('button',{name:'Submit for review'}).click();
     await page.getByText('Submitted for human review.').waitFor();
 
