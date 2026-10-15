@@ -1,3 +1,4 @@
+import {registerMemberRoutes} from './lib/member-routes.js';
 import {reservesTicketInventory} from './lib/checkout.js';
 import {createCustomerCheckout} from './lib/customer-checkout-routes.js';
 import {checkoutResponse} from './lib/embedded-checkout.js';
@@ -113,6 +114,7 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
 
 app.use(['/api/marketing/import','/api/marketing/clean-csv'],auth,owner,express.json({limit:'24mb'}));
 app.use(express.json({limit:'2mb'}));
+registerMemberRoutes(app,{dataDir:runtimeDataDir,readStore,baseUrl});
 const customerCheckout=createCustomerCheckout({readStore,writeStore,stripe,finalizers:{ticket:finalizeSession,donation:finalizeDonationSession,apparel:async session=>{const d=readStore();await finalizeShopSession(d,session,{id,queueConfirmation:async order=>{writeStore(d);await deliverShopConfirmation({order,apiKey:process.env.RESEND_API_KEY,from:process.env.SHOP_EMAIL_FROM||'Kingdom Vibe Shop <shop@tickets.kvnlive.com>'});persistShopEmail(order);}});}}});
 customerCheckout.register(app);
 app.use('/performance-agreement.html',(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next()});
