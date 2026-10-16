@@ -1,3 +1,9 @@
+import {registerSmsOptIn} from './lib/sms-opt-in.js';
+import {createSmsCampaignService} from './lib/sms-campaigns.js';
+import {registerSmsRoutes} from './lib/sms-routes.js';
+import {createSmsDispatcher} from './lib/sms-dispatcher.js';
+import {createTwilioClient} from './lib/sms-twilio.js';
+import {registerSmsWebhooks} from './lib/sms-webhooks.js';
 import {registerBusinessAssistantRoutes} from './lib/business-assistant-routes.js';
 import {createBusinessActionService} from './lib/business-actions.js';
 import {registerBusinessActionRoutes} from './lib/business-actions-routes.js';
@@ -97,6 +103,12 @@ function recordStripeReversal(event){
   writeStore(d);
   return affected;
 }
+
+const smsTwilioClient=createTwilioClient({env:process.env});
+const smsDispatcher=createSmsDispatcher({readStore,writeStore,client:smsTwilioClient,env:process.env});
+smsDispatcher.start();
+registerSmsOptIn(app,{env:process.env});
+registerSmsWebhooks(app,{readStore,writeStore,client:smsTwilioClient,env:process.env});
 
 const marketingEngagement = createEngagementStore({dataDir:runtimeDataDir});
 registerEngagementWebhook(app,{store:marketingEngagement});
@@ -292,6 +304,8 @@ app.use(['/api/sponsored/info','/api/sponsored/request','/api/sponsored/confirm'
 });
 registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,claimPageUrl:'https://kvnlive.com/promo',launchPolicy:{launchAt:'2026-10-12T18:10:00Z',testTokenHash:'e4a968a617e4075593410bc93871c0c0fca8ca3472d1451f1418a45500b639bc'},retryUpgrade:accessToken=>recoverSponsoredCheckout({readStore,writeStore,stripe,finalizeSession},accessToken)});
 registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
+const smsCampaignService=createSmsCampaignService({readStore,writeStore,env:process.env});
+registerSmsRoutes(app,{auth,owner,readStore,writeStore,campaignService:smsCampaignService,dispatcher:smsDispatcher,env:process.env});
 const marketingRoutes = registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl,engagement:marketingEngagement});
 const businessActions=createBusinessActionService({readStore,writeStore,campaignTransport:marketingRoutes.broadcasts});
 registerBusinessActionRoutes(app,{auth,owner,service:businessActions});
@@ -834,4 +848,9 @@ app.get('/api/tickets/:code/wallet', (req,res)=>{ const d=readStore(); const o=d
 
 app.get('/api/super-admin', auth, owner, (req,res)=>{ const d=readStore(); const paid=d.orders.filter(o=>o.status==='paid'); const volume=paid.reduce((n,o)=>n+(o.amountTotal||0),0);res.json({organizations:d.organizations,events:d.events,staff:d.users.filter(u=>u.role==='staff'),payouts:d.payouts,auditLogs:d.auditLogs.slice(0,50),abandonedCarts:d.abandonedCarts.filter(c=>c.status==='open'),feePlans:d.settings.feePlans,metrics:{grossVolume:volume,paidOrders:paid.length,organizers:d.organizations.length,publishedEvents:d.events.filter(e=>e.status==='published').length,openCarts:d.abandonedCarts.filter(c=>c.status==='open').length}}); });
 
-app.listen(port,()=>console.log(`KVN Live Tickets v4 running at ${baseUrl}`));
+const httpServer=app.listen(port,()=>console.log(`KVN Live Tickets v4 running at ${baseUrl}`));
+process.once('SIGTERM',()=>{
+  smsDispatcher.stop();
+  httpServer.close(()=>process.exit(0));
+  setTimeout(()=>process.exit(0),1000).unref();
+});
