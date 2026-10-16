@@ -27,6 +27,7 @@ export function createSocialApp({
   resendApiKey,
   emailFrom,
   mailer,
+  videoProvider=null,
   production=process.env.NODE_ENV==='production',
   sessionMs=7*24*60*60*1000,
   now=Date.now
@@ -78,7 +79,7 @@ export function createSocialApp({
   const publicPost=(state,post,userId)=>({
     id:post.id,authorId:post.authorId,author:publicUser(getUser(state,post.authorId)||{id:'unknown',name:'Unknown',role:'system'}),
     text:post.text,topic:post.topic,artist:post.artist||'',theme:post.theme||'none',title:post.title||'',eyebrow:post.eyebrow||'',
-    sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,mediaUrl:post.mediaId?`/api/media/${post.mediaId}`:'',reactions:(post.reactions||[]).length,
+    videoId:post.videoId||null,sample:!!post.sample,parentId:post.parentId||null,createdAt:post.createdAt,mediaUrl:post.mediaId?`/api/media/${post.mediaId}`:'',reactions:(post.reactions||[]).length,
     liked:(post.reactions||[]).includes(userId),saved:(post.saves||[]).includes(userId),version:post.version
   });
   const privatePost=(state,post)=>({...publicPost(state,post,''),status:post.status,signals:post.signals||[],reason:post.reason||'',version:post.version});
@@ -115,16 +116,16 @@ export function createSocialApp({
     const token=randomBytes(32).toString('hex'),csrf=randomBytes(24).toString('hex');
     sessions.set(token,{userId:user.id,csrf,expires:now()+sessionMs});
     res.cookie(cookieName,token,{httpOnly:true,sameSite:'strict',secure:production,path:'/',maxAge:sessionMs});
-    return {csrf,user:sessionUser(user),role:user.role,demo:false,beta:true};
+    return {csrf,user:sessionUser(user),role:user.role,demo:false,beta:true,videoEnabled:!!videoProvider};
   }
 
   app.use((req,res,next)=>{
     res.set({
       'Cache-Control':'no-store',
       'X-Content-Type-Options':'nosniff',
-      'Referrer-Policy':'no-referrer',
+      'Referrer-Policy':'strict-origin-when-cross-origin',
       'X-Frame-Options':'DENY',
-      'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      'Content-Security-Policy':`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: ${videoProvider?'https://'+videoProvider.cdnHost:''}; media-src 'self' blob:; connect-src 'self' https://video.bunnycdn.com; frame-src https://player.mediadelivery.net https://iframe.mediadelivery.net; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
       'Permissions-Policy':'camera=(), microphone=(), geolocation=()'
     });
     next();
@@ -255,7 +256,65 @@ export function createSocialApp({
 
   const route=(method,path,handler)=>app[method]('/api'+path,(req,res,next)=>Promise.resolve(handler(req,res)).catch(next));
 
-  route('get','/session',(req,res)=>res.json({csrf:req.session.csrf,user:sessionUser(req.user),role:req.user.role,demo:false,beta:true}));
+  const requireVideo=()=>{if(!videoProvider)throw fail(503,'Video uploads are not configured yet.');};
+  const videoRecord=(state,id)=>{const v=state.videos?.find(v=>v.id===id);if(!v)throw fail(404,'Video unavailable.');return v;};
+  async function readyVideo(id){
+    requireVideo();const info=await videoProvider.inspectVideo(id);
+    if(info.failed)throw fail(400,'Video processing failed. Choose another file.');
+    if(!info.ready)throw fail(409,'Video is still processing. Try again shortly.');
+    if(!Number.isFinite(info.duration)||info.duration<30||info.duration>60)throw fail(400,'Videos must be 30–60 seconds long.');
+    return info;
+  }
+  function stableVideo(v){
+    if(!v.uploadExpires||now()<(v.uploadExpires*1000+30000))throw fail(409,'Upload access is still active. Open this video for review after the ten-minute upload window closes.');
+  }
+  async function publishVideo(state,post,session){
+    if(!post.videoId)return;
+    const v=videoRecord(state,post.videoId);
+    stableVideo(v);
+    const info=await readyVideo(post.videoId),evidence=session.videoReviews?.[post.id];
+    if(!info.originalHash||!evidence||evidence.version!==post.version||evidence.hash!==info.originalHash)throw fail(409,'Open the current video for review before approving it.');
+  }
+  route('post','/videos',async(req,res)=>{
+    active(req);requireVideo();exact(req.body,['size','type']);rate('video:'+req.user.id,5,60*60*1000);
+    if(!Number.isSafeInteger(req.body.size)||req.body.size<1||req.body.size>100*1024*1024||!['video/mp4','video/quicktime','video/webm'].includes(req.body.type))throw fail(400,'Choose an MP4, MOV or WebM video up to 100 MB.');
+    let state=await read();state.videos=state.videos||[];
+    if(state.videos.length>=500||state.videos.filter(v=>v.ownerId===req.user.id&&v.createdAt>now()-86400000).length>=10)throw fail(429,'Video upload allowance reached. Contact the beta team.');
+    const reservation={id:randomUUID(),ownerId:req.user.id,createdAt:now(),uploadExpires:0,status:'starting'};
+    state.videos.push(reservation);await write(state);
+    const grant=await videoProvider.createUpload();
+    state=await read();const record=videoRecord(state,reservation.id);
+    Object.assign(record,{id:grant.videoId,uploadExpires:grant.expirationTime,status:'uploading'});await write(state);
+    if(getUser(state,req.user.id)?.suspended)throw fail(403,'Posting is suspended.');
+    res.set('Cache-Control','no-store').status(201).json(grant);
+  });
+  route('get','/videos/:id',async(req,res)=>{
+    requireVideo();const state=await read(),v=videoRecord(state,req.params.id);
+    if(v.ownerId!==req.user.id&&req.user.role!=='owner')throw fail(404,'Video unavailable.');
+    rate('video-status:'+req.user.id,60);
+    const info=await videoProvider.inspectVideo(v.id);
+    res.set('Cache-Control','no-store').json({ready:info.ready,failed:info.failed,duration:info.ready?info.duration:null});
+  });
+  route('get','/videos/:id/playback',async(req,res)=>{
+    requireVideo();
+    const authorize=state=>{
+      const v=videoRecord(state,req.params.id),post=state.posts.find(p=>p.videoId===v.id);
+      const user=getUser(state,req.user.id);
+      if(user?.role!=='owner'&&(user?.suspended||!(v.ownerId===req.user.id||(post&&visible(state,post,req.user.id)))))throw fail(404,'Video unavailable.');
+      if(user?.role==='owner'&&post)stableVideo(v);
+      return v;
+    };
+    authorize(await read());rate('video-play:'+req.user.id,60);
+    const info=await readyVideo(req.params.id),state=await read();authorize(state);
+    const post=state.posts.find(p=>p.videoId===req.params.id);
+    if(req.user.role==='owner'&&post){
+      if(!info.originalHash)throw fail(409,'Video fingerprint is not available yet. Try again shortly.');
+      req.session.videoReviews=req.session.videoReviews||{};
+      req.session.videoReviews[post.id]={version:post.version,hash:info.originalHash};
+    }
+    res.set('Cache-Control','no-store').json({url:videoProvider.playbackUrl(req.params.id),thumbnail:videoProvider.thumbnailUrl(req.params.id,info.thumbnail),expiresAt:now()+300000});
+  });
+  route('get','/session',(req,res)=>res.json({csrf:req.session.csrf,user:sessionUser(req.user),role:req.user.role,demo:false,beta:true,videoEnabled:!!videoProvider}));
   route('post','/logout',async(req,res)=>{
     sessions.delete(req.token);res.clearCookie(cookieName,{path:'/',secure:production,sameSite:'strict'});res.json({ok:true});
   });
@@ -286,15 +345,22 @@ export function createSocialApp({
     res.json({posts:state.posts.filter(post=>post.authorId===req.user.id).map(post=>privatePost(state,post)),appeals:state.appeals.filter(appeal=>appeal.authorId===req.user.id)});
   });
   route('post','/posts',async(req,res)=>{
-    active(req);exact(req.body,['text','topic','theme','parentId','photoData']);rate('post:'+req.user.id,8);
+    active(req);exact(req.body,['text','topic','theme','parentId','photoData','videoId']);rate('post:'+req.user.id,8);
     const text=validateText(req.body.text);if(!topics.includes(req.body.topic))throw fail(400,'Choose a topic.');
     if(req.body.theme&&!['none','sound','gather','live'].includes(req.body.theme))throw fail(400,'Choose a curated visual.');
     const state=await read();let parent=null;
     if(req.body.parentId){parent=getPost(state,req.body.parentId);if(parent.parentId||!visible(state,parent,req.user.id))throw fail(404,'Conversation unavailable.');}
     if(state.posts.some(post=>post.authorId===req.user.id&&post.text===text&&post.parentId===(req.body.parentId||null)))throw fail(409,'This message was already submitted.');
     if(state.posts.length>=20_000)throw fail(503,'Community post capacity reached for this beta.');
+    if(req.body.videoId){
+      if(req.body.photoData||req.body.parentId)throw fail(400,'Choose one photo or video for a main post.');
+      const v=videoRecord(state,req.body.videoId);
+      if(v.ownerId!==req.user.id)throw fail(404,'Video unavailable.');
+      if(state.posts.some(p=>p.videoId===v.id))throw fail(409,'This video was already attached to a post.');
+      await readyVideo(v.id);
+    }
     const postId=randomUUID();
-    const post={id:postId,authorId:req.user.id,text,topic:req.body.topic,theme:req.body.theme||'none',parentId:parent?.id||null,status:'pending',createdAt:new Date(now()).toISOString(),version:1,reactions:[],saves:[],signals:[],mediaId:savePhoto(req.body.photoData,postId,state)};
+    const post={id:postId,videoId:req.body.videoId||null,authorId:req.user.id,text,topic:req.body.topic,theme:req.body.theme||'none',parentId:parent?.id||null,status:'pending',createdAt:new Date(now()).toISOString(),version:1,reactions:[],saves:[],signals:[],mediaId:savePhoto(req.body.photoData,postId,state)};
     try{post.signals=screenContent(text);}catch{post.signals=['screening-unavailable'];}
     state.posts.push(post);audit(state,req.user.id,'submit',post.id,'Awaiting human review');await write(state);res.status(201).json({post:privatePost(state,post)});
   });
@@ -335,6 +401,7 @@ export function createSocialApp({
     const status={approve:'published',hide:'hidden',remove:'removed'}[req.body.action],author=getUser(state,post.authorId);
     if(status==='published'&&(author?.suspended||post.authorId===req.user.id))throw fail(409,'Cannot approve suspended or own-authored content.');
     if(status==='published'&&post.parentId&&!visible(state,getPost(state,post.parentId),req.user.id))throw fail(409,'Parent conversation must be available.');
+    if(status==='published')await publishVideo(state,post,req.session);
     post.status=status;post.reason=reason;post.version+=1;
     for(const report of state.reports)if(report.postId===post.id&&report.status==='open')Object.assign(report,{status:'resolved',resolution:reason,reviewerId:req.user.id,resolvedAt:new Date(now()).toISOString()});
     audit(state,req.user.id,req.body.action,post.id,reason);await write(state);res.json({post:privatePost(state,post)});
@@ -353,6 +420,7 @@ export function createSocialApp({
     if(!['restore','uphold'].includes(req.body.action))throw fail(400,'Choose an appeal decision.');
     const reason=validateText(req.body.reason,500),author=getUser(state,post.authorId);
     if(req.body.action==='restore'&&(author?.suspended||post.authorId===req.user.id||(post.parentId&&!visible(state,getPost(state,post.parentId),req.user.id))))throw fail(409,'Resolve account or parent restrictions before restoring.');
+    if(req.body.action==='restore')await publishVideo(state,post,req.session);
     Object.assign(appeal,{status:'resolved',resolution:req.body.action,explanation:reason,reviewerId:req.user.id,resolvedAt:new Date(now()).toISOString()});
     if(req.body.action==='restore'){post.status='published';post.version+=1;}post.reason=reason;
     audit(state,req.user.id,'appeal-'+req.body.action,post.id,reason);await write(state);res.json({appeal});
@@ -374,6 +442,7 @@ export function createSocialApp({
     }
   });
   app.use('/api',(req,res)=>res.status(404).json({error:'Unknown KV Social endpoint.'}));
+  app.get('/vendor/tus.min.js',(req,res)=>res.sendFile(fileURLToPath(new URL('../node_modules/tus-js-client/dist/tus.min.js',import.meta.url))));
   app.use(express.static(fileURLToPath(new URL('./public/',import.meta.url)),{etag:true,maxAge:production?'5m':0}));
   app.use((err,req,res,next)=>{
     if(res.headersSent)return next(err);

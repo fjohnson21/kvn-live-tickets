@@ -1,3 +1,4 @@
+import {uploadVideo,videoCard,dataSaverButton,clearVideoCards} from './video-ui.js';
 const $=s=>document.querySelector(s);
 const state={session:null,feed:null,view:'feed',filter:'All',reviewTab:'Pending',renderId:0};
 const node=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e};
@@ -7,8 +8,10 @@ async function api(path,method='GET',data){
  const response=await fetch('/api'+path,{method,headers:{'Content-Type':'application/json',...(state.session?{'X-CSRF-Token':state.session.csrf}:{})},body:data===undefined?undefined:JSON.stringify(data)});
  const result=await response.json();if(!response.ok){if(response.status===401&&path!=='/session'){state.session=null;$('#shell').hidden=true;$('#login').hidden=false;$('#signout').hidden=true;$('#modal').close();}throw Error(result.error||'Please try again.');}return result;
 }
-function showModal(title){const root=$('#modal-body');root.replaceChildren(node('h2','',title));if(!$('#modal').open)$('#modal').showModal();return root;}
+function disposeModalVideos(){for(const card of document.querySelectorAll('#modal .post-video'))card.disposeVideo?.();}
+function showModal(title){disposeModalVideos();if(state.uploadController)state.uploadController.abort();const root=$('#modal-body');root.replaceChildren(node('h2','',title));if(!$('#modal').open)$('#modal').showModal();return root;}
 $('#close-modal').onclick=()=>$('#modal').close();
+$('#modal').addEventListener('close',()=>{state.uploadController?.abort();disposeModalVideos();});
 function field(form,label,name,type='textarea',options=[]){const id='field-'+name;const l=node('label','',label);l.htmlFor=id;let e;
  if(type==='select'){e=node('select');for(const [value,label]of options){const o=node('option','',label);o.value=value;e.append(o)}}else e=node(type==='textarea'?'textarea':'input');
  e.id=id;e.name=name;e.required=true;if(type==='textarea')e.maxLength=2000;form.append(l,e);return e;
@@ -38,15 +41,19 @@ $('#forgot-password').onclick=forgotPasswordModal;
 $('#resend-verification').onclick=()=>act(async()=>{const email=$('#login-email').value;if(!email)throw Error('Enter your email first.');await api('/resend-verification','POST',{email});$('#auth-notice').hidden=false;$('#auth-notice').textContent='If this account is awaiting verification, a new email is on the way.';});
 $('#login-form').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;$('#login-error').textContent='';try{const s=await api('/login','POST',{email:$('#login-email').value,password:$('#login-password').value});$('#login-password').value='';await loginReady(s);}catch(err){$('#login-error').textContent=err.message;}finally{b.disabled=false;}};
 $('#register-form').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;$('#register-error').textContent='';try{const s=await api('/register','POST',{name:$('#register-name').value,email:$('#register-email').value,password:$('#register-password').value,inviteCode:$('#invite-code').value,communityAgreement:$('#community-agreement').checked});$('#register-password').value='';$('#invite-code').value='';if(s.verificationRequired){$('#login-email').value=s.email||$('#register-email').value;authView(false);$('#auth-notice').hidden=false;$('#auth-notice').textContent=s.deliveryPending?'Your account was created, but the verification email is delayed. Use Resend verification.':'Check your email to verify your KV Social account, then sign in.';}else await loginReady(s);}catch(err){$('#register-error').textContent=err.message;}finally{b.disabled=false;}};
-$('#signout').onclick=()=>act(async()=>{await api('/logout','POST',{});state.renderId++;state.session=null;state.feed=null;$('#shell').hidden=true;$('#login').hidden=false;$('#signout').hidden=true;$('#content').replaceChildren();});
+$('#signout').onclick=()=>act(async()=>{await api('/logout','POST',{});clearVideoCards();state.renderId++;state.session=null;state.feed=null;$('#shell').hidden=true;$('#login').hidden=false;$('#signout').hidden=true;$('#content').replaceChildren();});
 for(const b of document.querySelectorAll('[data-view]'))b.onclick=()=>{state.view=b.dataset.view;state.filter='All';act(render);};
 $('#compose').onclick=()=>compose();
 function compose(parent=null,edit=null){
  const root=showModal(edit?'Edit your message':parent?'Join the conversation':'Share something meaningful');root.append(node('p','muted','Your message remains private until a human reviewer approves it. Respectful disagreement is welcome.'));
- let photoInput=null;
+ const controller=new AbortController();state.uploadController=controller;
+ let photoInput=null,videoInput=null,uploadedVideoId=null;const progress=node('p','video-status');progress.setAttribute('role','status');
  const f=submitForm(root,edit?'Save for review':'Submit for review',async data=>{
+  if(videoInput?.files?.[0]&&photoInput?.files?.[0])throw Error('Choose one photo or video.');
+  if(videoInput?.files?.[0]&&!uploadedVideoId){videoInput.disabled=true;if(photoInput)photoInput.disabled=true;try{uploadedVideoId=await uploadVideo(videoInput.files[0],api,message=>progress.textContent=message,controller.signal);}finally{videoInput.disabled=false;}}
   const photoData=photoInput?.files?.[0]?await preparePhoto(photoInput.files[0]):'';
-  const body={text:data.get('text'),topic:data.get('topic')||parent?.topic||'Kingdom Culture',theme:data.get('theme')||'none',...(parent?{parentId:parent.id}:{}),...(photoData?{photoData}:{})};
+  const body={text:data.get('text'),topic:data.get('topic')||parent?.topic||'Kingdom Culture',theme:data.get('theme')||'none',...(parent?{parentId:parent.id}:{}),...(photoData?{photoData}:{}),...(uploadedVideoId?{videoId:uploadedVideoId}:{})};
+  if(controller.signal.aborted)throw Error('Upload cancelled.');
   await api(edit?`/posts/${edit.id}`:'/posts',edit?'PATCH':'POST',edit?{text:body.text}:body);await finish('Submitted for human review.');
  });const text=field(f.form,'Your message','text');text.value=edit?.text||'';text.placeholder='A testimony. A prayer request. A song. A little encouragement.';
  const count=node('p','count',`${text.value.length} / 2,000`);text.oninput=()=>count.textContent=`${text.value.length} / 2,000`;f.form.append(count);
@@ -54,6 +61,7 @@ function compose(parent=null,edit=null){
   field(f.form,'Feed','topic','select',['Kingdom Culture','Testimonies','Prayer Requests','Music','KV Live'].map(x=>[x,x]));
   field(f.form,'Visual style','theme','select',[['none','Text only'],['sound','Sound — monochrome'],['gather','Together — warm neutral'],['live','KV Live — deep red']]);
   const label=node('label','','Photo (optional)');label.htmlFor='post-photo';photoInput=node('input');photoInput.id='post-photo';photoInput.type='file';photoInput.accept='image/*';photoInput.setAttribute('aria-describedby','photo-note');f.form.append(label,photoInput,node('p','review-meta','Photos are resized on your phone and remain private until a moderator approves the post.'));f.form.lastChild.id='photo-note';
+  if(state.session.videoEnabled){const label=node('label','','Video (optional, 30–60 seconds)');label.htmlFor='post-video';videoInput=node('input');videoInput.id='post-video';videoInput.type='file';videoInput.accept='video/mp4,video/quicktime,video/webm';videoInput.onchange=()=>{uploadedVideoId=null;photoInput.disabled=!!videoInput.files.length;progress.textContent='';};photoInput.onchange=()=>{videoInput.disabled=!!photoInput.files.length;};f.form.append(label,videoInput,node('p','review-meta','MP4, MOV or WebM. Up to 100 MB. Keep this window open during upload. Videos remain private until reviewed.'),progress);}
  }
  f.finish();text.focus();
 }
@@ -67,9 +75,9 @@ function heading(title,subtitle){$('#view-heading').append(node('h1','section-he
 async function render(){
  if(!state.session)return;const renderId=++state.renderId;$('#content').setAttribute('aria-busy','true');
  try{
-  const feed=await api('/feed');if(renderId!==state.renderId||!state.session)return;state.feed=feed;const feedView=['feed','saved'].includes(state.view);$('#intro').hidden=state.view!=='feed';$('#compose').hidden=!feedView;$('#filters').replaceChildren();$('#view-heading').replaceChildren();$('#content').replaceChildren();
+  const feed=await api('/feed');if(renderId!==state.renderId||!state.session)return;state.feed=feed;clearVideoCards();const feedView=['feed','saved'].includes(state.view);$('#intro').hidden=state.view!=='feed';$('#compose').hidden=!feedView;$('#filters').replaceChildren();$('#view-heading').replaceChildren();$('#content').replaceChildren();
   for(const b of document.querySelectorAll('[data-view]'))b.classList.toggle('active',b.dataset.view===state.view);
-  renderArtists();
+  renderArtists();if(state.session.videoEnabled)$('#view-heading').append(dataSaverButton());
   if(feedView){if(state.view==='saved')heading('Saved moments.','The stories you want to come back to. Saved to your KV Social account.');
    for(const topic of ['All',...state.feed.topics]){const b=button(topic,'chip'+(state.filter===topic?' selected':''),()=>{state.filter=topic;act(render)});b.setAttribute('aria-pressed',String(state.filter===topic));$('#filters').append(b);}
    const posts=state.feed.posts.filter(p=>!p.parentId&&(state.view!=='saved'||p.saved)&&(state.filter==='All'||p.topic===state.filter||p.artist===state.filter||p.text.includes(state.filter)));
@@ -81,7 +89,7 @@ async function render(){
 function artistModal(name){const root=showModal(name);root.append(node('p','','Featured worship leader · KV Editorial spotlight'),node('p','','This is a KV-curated artist spotlight, not an artist-owned account. Artist-owned profiles can be verified in a later release.'),button('View artist posts','primary',()=>{state.view='feed';state.filter=name;$('#modal').close();act(render)}),button('Start a music conversation','secondary',()=>compose()));}
 function renderArtists(){const r=$('#artist-list'),mobile=$('#mobile-artists');r.replaceChildren();mobile.replaceChildren();mobile.hidden=state.view!=='feed';for(const name of ['Imani Raeford','Jalisa Faye','Yael Hilton']){const b=button('','artist',()=>artistModal(name));b.append(node('span','avatar light',name.split(' ').map(n=>n[0]).join('')));const text=node('div');text.append(node('strong','',name),node('small','','Worship · Artist spotlight'));b.append(text,node('span','','↗'));r.append(b);mobile.append(button(name+' ↗','chip',()=>artistModal(name),'Discover '+name));}}
 function postCard(p){const card=node('article','post');const head=node('div','post-head');const avatar=button(p.author.initials,'avatar',()=>profile(p.author),'View profile for '+p.author.name);const by=node('div','post-byline');by.append(button(p.author.name,'author-button',()=>profile(p.author)),node('div','post-meta',p.sample?'KV Editorial · Official network post':new Date(p.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · Community'));head.append(avatar,by,node('span','tag',p.topic));card.append(head);
- if(p.mediaUrl){const img=node('img','post-photo');img.src=p.mediaUrl;img.alt='Photo shared with this KV Social post';img.loading='lazy';card.append(img);}else if(p.theme!=='none'){const art=node('div','art '+p.theme);art.append(node('span','art-kicker',p.eyebrow||'A MOMENT FOR THE COMMUNITY'),node('div','art-title',p.title||'Faith. Purpose.\nCommunity. Impact.'),node('span','art-footer',p.artist||'KINGDOM VIBE NETWORK'));card.append(art);}
+ if(p.videoId){card.append(videoCard(p.videoId,api));}else if(p.mediaUrl){const img=node('img','post-photo');img.src=p.mediaUrl;img.alt='Photo shared with this KV Social post';img.loading='lazy';card.append(img);}else if(p.theme!=='none'){const art=node('div','art '+p.theme);art.append(node('span','art-kicker',p.eyebrow||'A MOMENT FOR THE COMMUNITY'),node('div','art-title',p.title||'Faith. Purpose.\nCommunity. Impact.'),node('span','art-footer',p.artist||'KINGDOM VIBE NETWORK'));card.append(art);}
  card.append(node('p','post-text',p.text));const tools=node('div','post-tools');
  const reaction=button('','tool'+(p.liked?' on':''),()=>act(async()=>{await api(`/posts/${p.id}/react`,'POST',{});await render()}),p.liked?'Appreciated':'Appreciate');reaction.setAttribute('aria-pressed',String(p.liked));reaction.append(node('span','symbol',p.liked?'♥':'♡'),node('span','',p.reactions?String(p.reactions):'Appreciate'));
  const comments=state.feed.posts.filter(c=>c.parentId===p.id);const conversation=button('','tool',()=>conversationModal(p),'View conversation');conversation.append(node('span','symbol','◯'),node('span','',comments.length?String(comments.length):'Respond'));
@@ -108,7 +116,7 @@ async function moderation(renderId){heading('The review desk.','Context before c
  if(!posts.length)$('#content').append(node('div','empty','All clear in this queue.'));
  for(const p of posts){const c=node('article','review-card');c.append(node('span','status '+p.status,p.status),node('p','review-meta',p.author.name+(p.parentId?' · Comment':'')),node('p','',p.text),node('p','review-note',p.signals.length?'Review signals: '+p.signals.join(', '):'No automated signals. Human context review is still required.'),button('Review post','secondary',()=>reviewModal(p,data)));$('#content').append(c);}
 }
-function reviewModal(p,data,appeal=null){const r=showModal(appeal?'Reconsider this decision.':'Review with context.');if(p.mediaUrl){const img=node('img','post-photo');img.src=p.mediaUrl;img.alt='Photo submitted with this post';r.append(img);}r.append(node('p','',p.text),node('p','review-meta',`Author: ${p.author.name} · Version ${p.version}`));if(p.parentId){const parent=data.posts.find(x=>x.id===p.parentId);r.append(node('p','review-note','Parent conversation: '+(parent?.text||'Unavailable')));}
+function reviewModal(p,data,appeal=null){const r=showModal(appeal?'Reconsider this decision.':'Review with context.');if(p.videoId){r.append(videoCard(p.videoId,api,{autoplay:false}));}if(p.mediaUrl){const img=node('img','post-photo');img.src=p.mediaUrl;img.alt='Photo submitted with this post';r.append(img);}r.append(node('p','',p.text),node('p','review-meta',`Author: ${p.author.name} · Version ${p.version}`));if(p.parentId){const parent=data.posts.find(x=>x.id===p.parentId);r.append(node('p','review-note','Parent conversation: '+(parent?.text||'Unavailable')));}
  if(appeal)r.append(node('p','review-note','Author’s appeal: '+appeal.reason));else{r.append(node('p','review-note','Signals are not proof. Respectful criticism, disagreement, and negative reviews may remain.'));for(const report of data.reports.filter(x=>x.postId===p.id&&x.status==='open'))r.append(node('p','review-note',`Private report · ${report.category}: ${report.reason}`));}
  const form=node('form');const reason=field(form,'Decision reason','reason');reason.maxLength=500;reason.placeholder='Explain the policy and context. The author will see this reason.';const error=node('p','error');error.setAttribute('role','alert');const actions=node('div','form-actions');
  for(const [action,label]of (appeal?[['restore','Restore post'],['uphold','Uphold removal']]:[['approve','Approve post'],['hide','Hide post'],['remove','Remove post']]))actions.append(button(label,action==='approve'||action==='restore'?'primary':'secondary',async()=>{

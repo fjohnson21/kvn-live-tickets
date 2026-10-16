@@ -1,8 +1,10 @@
 import 'dotenv/config';
+import {createVideoProvider} from './video.js';
 import {createSocialApp} from './app.js';
 
 const port=Number(process.env.PORT||process.env.KV_SOCIAL_PORT||4311);
 const app=createSocialApp({
+  videoProvider:process.env.KV_SOCIAL_VIDEO_UPLOADS_ENABLED==='true'?createVideoProvider({libraryId:process.env.BUNNY_STREAM_LIBRARY_ID,cdnHost:process.env.BUNNY_STREAM_CDN_HOST,apiKey:process.env.BUNNY_STREAM_API_KEY,tokenKey:process.env.BUNNY_STREAM_TOKEN_KEY}):null,
   dataDir:process.env.KV_SOCIAL_DATA_DIR||process.env.DATA_DIR||'./data/social',
   databaseUrl:process.env.DATABASE_URL,
   ownerEmail:process.env.KV_SOCIAL_OWNER_EMAIL,
