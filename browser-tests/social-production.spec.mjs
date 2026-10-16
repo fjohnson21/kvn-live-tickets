@@ -22,7 +22,7 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
     await page.locator('#register-email').fill('jordan@example.com');
     await page.locator('#register-password').fill('member-password-123');
     await page.locator('#invite-code').fill(inviteCode);
-    await page.getByLabel(/I agree to participate respectfully/).check();
+    await page.locator('#community-agreement').check();
     await page.getByRole('button',{name:/Create my account/}).click();
     await page.getByRole('heading',{name:'Your people. Your purpose.'}).waitFor();
 
@@ -40,6 +40,8 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
 
     await page.getByRole('button',{name:'Community feed'}).click();
     await page.getByRole('button',{name:'Share something'}).click();
+    await page.locator('#accept-house-rules').check();
+    await page.getByRole('button',{name:'I agree — let’s create'}).click();
     await page.getByLabel('Your message').fill('Grateful for this community and excited for KV Live.');
     await page.locator('#field-topic').selectOption('KV Live');
     const jpegBase64=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=80;canvas.height=80;const ctx=canvas.getContext('2d');ctx.fillStyle='#555';ctx.fillRect(0,0,80,80);return canvas.toDataURL('image/jpeg',0.9).split(',')[1];});
@@ -94,7 +96,7 @@ test('KV Social email link requires a deliberate confirmation click on mobile',a
     await page.locator('#register-email').fill('mobile-verify@example.com');
     await page.locator('#register-password').fill('member-password-123');
     await page.locator('#invite-code').fill('kv-social-beta-invite-2026');
-    await page.getByLabel(/I agree to participate respectfully/).check();
+    await page.locator('#community-agreement').check();
     await page.getByRole('button',{name:/Create my account/}).click();
     await page.getByText('Check your email to verify your KV Social account, then sign in.').waitFor();
     assert.equal(messages.length,1);
