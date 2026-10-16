@@ -1,6 +1,6 @@
 # KVN SMS review and implementation decisions
 
-Independent review: gpt-6-astra, read-only. Five Important findings accepted and fixed with reproducing tests, no Critical findings. Final backend437/437 and affected Site14/14 pass; syntax, Site typecheck, build and public asset parity pass. Browser tests blocked by missing Chromium; account/sender/credentials and live recipient test unestablished; publication blocked. See kvn-sms-release.md and kvn-twilio-setup.md.
+Independent review: gpt-6-astra, read-only. Five Important findings accepted and fixed with reproducing tests, no Critical findings. Final backend437/437 and affected Site14/14 pass; syntax, Site typecheck, build and public asset parity pass. Browser tests blocked by missing Chromium; account/sender/credentials and live recipient test unestablished; publication authorized and PR75 open; CI release checks are underway. See kvn-sms-release.md and kvn-twilio-setup.md.
 
 ## Rulings I made
 
