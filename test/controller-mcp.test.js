@@ -96,7 +96,8 @@ test('MCP requires owner authentication and Controller switch, and blocks send w
     body: JSON.stringify({ jsonrpc: '2.0', id: 7, method, params }) });
   assert.equal((await req('tools/list', {}, null)).status, 401);
   const listed = await (await req('tools/list', {})).json();
-  assert.equal(listed.result.tools.length, 5);
+  assert.equal(listed.result.tools.length, 9);
+  assert.deepEqual(listed.result.tools.find(t=>t.name==='kvn_prepare_business_action').securitySchemes,[{type:'oauth2',scopes:['kvn:read','kvn:edit']}]);
   const sendingTool = listed.result.tools.find(tool => tool.name === 'kvn_start_campaign');
   const readTool = listed.result.tools.find(tool => tool.name === 'kvn_campaigns');
   assert.deepEqual(sendingTool.securitySchemes, [{ type: 'oauth2', scopes: ['kvn:read','kvn:send'] }]);

@@ -47,3 +47,5 @@ test('refund restores inventory and marks reward for reversal',async()=>{
   assert.equal(store.discipleCommissions[0].status,'reversal_required');
   assert.equal(store.collectorAssignments[0].status,'refunded');
 });
+
+test('confirmed new refunds preserve provider amount and identity for sales adjustment',async()=>{const {store,session}=fixture();const order=await finalizeShopSession(store,session,{clock});refundShopOrder(store,order.id,{clock,refund:{id:'re_fixture',status:'succeeded',amount:1234,currency:'usd'}});assert.equal(order.refundAmount,1234);assert.equal(order.stripeRefundId,'re_fixture');});
