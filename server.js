@@ -1,3 +1,6 @@
+import {legacyPageDestination} from './lib/public-urls.js';
+import {registerActivityRoutes} from './lib/activity-routes.js';
+import {commerceClientIdentity} from './lib/commerce-client-identity.js';
 import {registerMemberRoutes} from './lib/member-routes.js';
 import {reservesTicketInventory} from './lib/checkout.js';
 import {createCustomerCheckout} from './lib/customer-checkout-routes.js';
@@ -57,8 +60,8 @@ if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
 const app = express();
 app.set('trust proxy', true);
 const port = process.env.PORT || 3000;
-const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
-const affiliateBaseUrl = process.env.AFFILIATE_PUBLIC_BASE_URL || `${baseUrl.replace(/\/$/,'')}/affiliate`;
+const baseUrl = 'https://kvnlive.com'; // Public destinations never inherit the engine host.
+const affiliateBaseUrl = 'https://kvnlive.com/affiliate';
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -119,6 +122,7 @@ const customerCheckout=createCustomerCheckout({readStore,writeStore,stripe,final
 customerCheckout.register(app);
 app.use('/performance-agreement.html',(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next()});
 app.use(['/sponsored.html','/sponsored-admin.html'],(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://kvnlive.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();});
+app.use((req,res,next)=>{if(req.method==='GET'&&String(req.hostname).endsWith('.onrender.com')&&!commerceClientIdentity(req).startsWith('bridge:')){const url=new URL(req.originalUrl,'https://kvnlive.com'),destination=legacyPageDestination(url.pathname,url.search);if(destination)return res.redirect(302,destination);}next();});
 app.use(express.static('public'));
 const uploadDir = process.env.UPLOAD_DIR || path.resolve('public/uploads');
 requireDir(uploadDir);
@@ -239,7 +243,7 @@ app.get('/api/shop/orders/:id/receipt',(req,res)=>{
 const safeUser = u => u ? ({id:u.id,name:u.name,email:u.email,role:u.role,organizationId:u.organizationId,permissions:u.permissions||[]}) : null;
 function cookieValue(req,name){ const prefix=`${name}=`; return String(req.headers.cookie||'').split(';').map(value=>value.trim()).find(value=>value.startsWith(prefix))?.slice(prefix.length)||''; }
 function sameSecret(left,right){ const a=crypto.createHash('sha256').update(String(left)).digest(),b=crypto.createHash('sha256').update(String(right)).digest(); return crypto.timingSafeEqual(a,b); }
-function clientAddress(req){ return String(req.headers['x-forwarded-for']||'').split(',')[0].trim() || req.socket.remoteAddress || ''; }
+function clientAddress(req){ const signed=commerceClientIdentity(req); return signed.startsWith('bridge:')?signed:String(req.headers['x-forwarded-for']||'').split(',')[0].trim()||req.socket.remoteAddress||''; }
 function sessionCookie(token,maxAge=Math.floor(sessionTtlMs/1000)){ return `${sessionCookieName}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`; }
 function pruneSessions(){ const now=Date.now(); for(const [token,session] of sessions)if(session.expiresAt<=now)sessions.delete(token); while(sessions.size>1000)sessions.delete(sessions.keys().next().value); }
 function auth(req,res,next){ res.set('Cache-Control','no-store'); const token=cookieValue(req,sessionCookieName),session=sessions.get(token); if(!session||session.expiresAt<=Date.now()){if(token)sessions.delete(token);return res.status(401).json({error:'Sign in required.'});} const user=readStore().users.find(u=>u.id===session.userId); if(!user) return res.status(401).json({error:'Sign in required.'}); req.user=user; req.sessionToken=token; next(); }
@@ -265,8 +269,9 @@ registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,claimPageUr
 registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
 const marketingRoutes = registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl,engagement:marketingEngagement});
 registerControllerRoutes(app,{auth,owner,readStore,writeStore,baseUrl,engagement:marketingEngagement});
-registerControllerMcp(app,{readStore,writeStore,baseUrl,engagement:marketingEngagement,runner:marketingRoutes.runner});
-registerCrmRoutes(app,{auth,owner,readStore,writeStore,id,sync:runCrmSync,configured:crmConfigured,baseUrl});
+registerControllerMcp(app,{readStore,writeStore,baseUrl:process.env.BASE_URL||baseUrl,engagement:marketingEngagement,runner:marketingRoutes.runner});
+registerActivityRoutes(app,{auth,owner,readStore,sync:runCrmSync,configured:crmConfigured});
+registerCrmRoutes(app,{auth,owner,readStore,writeStore,id,sync:runCrmSync,configured:crmConfigured,baseUrl:process.env.BASE_URL||baseUrl});
 if(crmConfigured){
  const crmTimer=setInterval(()=>runCrmSync().catch(()=>console.error('CRM sync failed')),5*60*1000);crmTimer.unref();
  setImmediate(()=>runCrmSync().catch(()=>console.error('CRM initial sync failed')));
