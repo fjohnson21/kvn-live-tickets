@@ -1,3 +1,4 @@
+import {registerSocialBusinessReporting} from './business-reporting.js';
 import express from 'express';
 import {HOUSE_RULES_VERSION} from './public/house-rules.js';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
@@ -239,6 +240,7 @@ export function createSocialApp({
     }catch(error){next(error);}
   });
 
+  registerSocialBusinessReporting(app,{read});
   app.use('/api',async(req,res,next)=>{
     if(['/register','/login','/resend-verification','/password/forgot','/password/reset','/verify-email'].includes(req.path))return next();
     try{
