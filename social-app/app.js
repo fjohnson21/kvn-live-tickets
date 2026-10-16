@@ -1,4 +1,5 @@
 import express from 'express';
+import {HOUSE_RULES_VERSION} from './public/house-rules.js';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {createFileStore,createPostgresStore} from './store.js';
@@ -63,7 +64,7 @@ export function createSocialApp({
   const getUser=(state,id)=>state.users.find(user=>user.id===id);
   const getPost=(state,id)=>{const post=state.posts.find(item=>item.id===id);if(!post)throw fail(404,'Post not found.');return post;};
   const publicUser=user=>({id:user.id,name:user.name,bio:user.bio||'',initials:user.initials||profileInitials(user.name),suspended:!!user.suspended,role:user.role==='system'?'system':user.role==='owner'?'owner':'member'});
-  const sessionUser=user=>({...publicUser(user),email:user.email||'',emailVerified:user.emailVerified===true});
+  const sessionUser=user=>({...publicUser(user),email:user.email||'',emailVerified:user.emailVerified===true,houseRulesVersion:user.houseRulesVersion||null,houseRulesAcceptedAt:user.houseRulesAcceptedAt||null});
   const isBlocked=(state,userId,authorId)=>state.blocks.some(item=>item.userId===userId&&item.authorId===authorId);
   const visible=(state,post,userId)=>{
     const author=getUser(state,post.authorId);
@@ -155,7 +156,7 @@ export function createSocialApp({
       const email=normalizeEmail(req.body.email),name=validateDisplayName(req.body.name),password=validatePassword(req.body.password);
       const state=await read();
       if(state.users.some(user=>user.email===email))throw fail(409,'An account already exists for this email.');
-      const user={id:randomUUID(),role:'member',email,name,bio:'',initials:profileInitials(name),passwordHash:hashPassword(password),suspended:false,emailVerified:!verificationEnabled,createdAt:new Date(now()).toISOString(),agreementAcceptedAt:new Date(now()).toISOString()};
+      const user={id:randomUUID(),role:'member',email,name,bio:'',initials:profileInitials(name),passwordHash:hashPassword(password),suspended:false,emailVerified:!verificationEnabled,createdAt:new Date(now()).toISOString(),agreementAcceptedAt:new Date(now()).toISOString(),signupAgreementVersion:HOUSE_RULES_VERSION};
       state.users.push(user);audit(state,user.id,'register',user.id,'Invited beta account created');
       let verificationToken='';
       if(verificationEnabled)verificationToken=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);
@@ -374,7 +375,18 @@ export function createSocialApp({
     const state=await read();
     res.json({posts:state.posts.filter(post=>post.authorId===req.user.id).map(post=>privatePost(state,post)),appeals:state.appeals.filter(appeal=>appeal.authorId===req.user.id)});
   });
+  route('post','/house-rules/accept',async(req,res)=>{
+    active(req);exact(req.body,['version','accepted']);
+    if(req.body.accepted!==true||req.body.version!==HOUSE_RULES_VERSION)throw fail(400,'Read and accept the current house rules to continue.');
+    const state=await read(),user=getUser(state,req.user.id);
+    if(user.houseRulesVersion!==HOUSE_RULES_VERSION){
+      user.houseRulesVersion=HOUSE_RULES_VERSION;user.houseRulesAcceptedAt=new Date(now()).toISOString();
+      audit(state,user.id,'house-rules-accepted',user.id,'House rules '+HOUSE_RULES_VERSION);await write(state);
+    }
+    res.json({user:sessionUser(user)});
+  });
   route('post','/posts',async(req,res)=>{
+    if(req.user.houseRulesVersion!==HOUSE_RULES_VERSION)throw fail(403,'Accept our house rules before sharing your first post or comment.');
     active(req);exact(req.body,['text','topic','theme','parentId','photoData','videoId']);rate('post:'+req.user.id,8);
     const text=validateText(req.body.text);if(!topics.includes(req.body.topic))throw fail(400,'Choose a topic.');
     if(req.body.theme&&!['none','sound','gather','live'].includes(req.body.theme))throw fail(400,'Choose a curated visual.');
@@ -395,6 +407,7 @@ export function createSocialApp({
     state.posts.push(post);audit(state,req.user.id,'submit',post.id,'Awaiting human review');await write(state);res.status(201).json({post:privatePost(state,post)});
   });
   route('patch','/posts/:id',async(req,res)=>{
+    if(req.user.houseRulesVersion!==HOUSE_RULES_VERSION)throw fail(403,'Accept our house rules before sharing.');
     active(req);exact(req.body,['text']);rate('post:'+req.user.id,8);const state=await read(),post=getPost(state,req.params.id);
     if(post.authorId!==req.user.id)throw fail(403,'Only the author may edit.');
     if(state.appeals.some(appeal=>appeal.postId===post.id&&appeal.status==='pending'))throw fail(409,'Wait for the open appeal before editing.');

@@ -58,6 +58,7 @@ async function runtime(t,{enabled=true}={}){
  }
  async function member(email){const s={};const r=await request('/register','POST',{name:'Video Member',email,password:'member-password-123',inviteCode:'invite-code-2026',communityAgreement:true},s);assert.equal(r.status,201);s.user=r.data.user;return s;}
  const a=await member('a@kv.test'),b=await member('b@kv.test'),owner={};await request('/login','POST',{email:'owner@kv.test',password:'owner-password-123'},owner);
+ for(const session of [a,b,owner])assert.equal((await request('/house-rules/accept','POST',{version:'2026-10-16',accepted:true},session)).status,200);
  return{base,request,a,b,owner,videos,advance:ms=>clock+=ms};
 }
 const uploadBody={size:1024,type:'video/mp4'};

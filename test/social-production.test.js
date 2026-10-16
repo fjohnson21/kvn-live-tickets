@@ -58,6 +58,7 @@ test('KV Social invited beta persists real accounts and moderated community acti
     assert.equal(response.status,200);
     assert.equal(response.data.user.name,'Jordan J.');
 
+    assert.equal((await runtime.request('/house-rules/accept','POST',{version:'2026-10-16',accepted:true},member)).status,200);
     response=await runtime.request('/posts','POST',{text:'Grateful for this community and excited for KV Live.',topic:'KV Live',theme:'live',photoData:'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAKAAoDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDzqiiigD//2Q=='},member);
     assert.equal(response.status,201);
     const postId=response.data.post.id;
@@ -128,6 +129,7 @@ test('KV Social rejects unsafe cross-origin writes and protects moderation',asyn
     response=await runtime.request('/moderation','GET',undefined,member);
     assert.equal(response.status,403);
 
+    assert.equal((await runtime.request('/house-rules/accept','POST',{version:'2026-10-16',accepted:true},member)).status,200);
     response=await runtime.request('/posts','POST',{text:'I enjoyed the event but the sound was too loud.',topic:'Kingdom Culture',theme:'none'},member);
     assert.equal(response.status,201);
     assert.equal(response.data.post.status,'pending');

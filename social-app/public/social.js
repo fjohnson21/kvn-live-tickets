@@ -1,3 +1,4 @@
+import {HOUSE_RULES_VERSION,HOUSE_RULES_TAGLINE,HOUSE_RULES_INTRO,HOUSE_RULES,HOUSE_RULES_REVIEW} from './house-rules.js';
 import {uploadVideo,videoCard,dataSaverButton,clearVideoCards} from './video-ui.js';
 const $=s=>document.querySelector(s);
 const state={session:null,feed:null,view:'feed',filter:'All',reviewTab:'Pending',renderId:0};
@@ -45,6 +46,7 @@ $('#signout').onclick=()=>act(async()=>{await api('/logout','POST',{});clearVide
 for(const b of document.querySelectorAll('[data-view]'))b.onclick=()=>{state.view=b.dataset.view;state.filter='All';act(render);};
 $('#compose').onclick=()=>compose();
 function compose(parent=null,edit=null){
+ if(state.session.user.houseRulesVersion!==HOUSE_RULES_VERSION)return houseRulesModal(()=>compose(parent,edit));
  const root=showModal(edit?'Edit your message':parent?'Join the conversation':'Share something meaningful');root.append(node('p','muted','Your message remains private until a human reviewer approves it. Respectful disagreement is welcome.'));
  const controller=new AbortController();state.uploadController=controller;
  let photoInput=null,videoInput=null,uploadedVideoId=null;const progress=node('p','video-status');progress.setAttribute('role','status');
@@ -65,10 +67,22 @@ function compose(parent=null,edit=null){
  }
  f.finish();text.focus();
 }
-function guidelines(){const r=showModal('A community with purpose.');
- const rules=[['Make room for disagreement.','You can critique a performance, opinion or event respectfully. Negative sentiment alone is not a violation.'],['Protect people.','No targeted harassment, hateful attacks, threats, derogatory abuse, sexual exploitation, doxxing, impersonation or spam.'],['Pause before publishing.','Every beta post, comment and edit is reviewed. Automated signals help prioritize review; they do not decide guilt.'],['Speak up safely.','Report a concern privately or block an account. Reports do not automatically remove content. Authors receive reasons and may appeal a removal.'],['Protect your privacy.','Do not post private addresses, phone numbers, financial information or another person’s personal details.'],['Know the limits.','KV Social is an invited beta, not an emergency service. Posts and comments require human review before publication.']];
- for(const [h,p]of rules){r.append(node('h3','',h),node('p','',p));}
+function renderHouseRules(root){
+ root.append(node('p','house-rules-tagline',HOUSE_RULES_TAGLINE),node('p','house-rules-intro',HOUSE_RULES_INTRO));
+ const list=node('ol','house-rules-list');
+ for(const [title,body]of HOUSE_RULES){const item=node('li');item.append(node('h3','',title),node('p','',body));list.append(item);}root.append(list);
+ root.append(node('p','review-note',HOUSE_RULES_REVIEW),node('p','review-meta','Our team considers context. You’ll receive a reason for a removal and can request another look.'));
 }
+function houseRulesModal(continuePosting){
+ const root=showModal('Welcome to the house.');renderHouseRules(root);
+ const f=submitForm(root,'I agree — let’s create',async()=>{
+  const result=await api('/house-rules/accept','POST',{version:HOUSE_RULES_VERSION,accepted:true});state.session.user=result.user;continuePosting();
+ });
+ const label=node('label','agreement');const check=node('input');check.type='checkbox';check.required=true;check.id='accept-house-rules';label.htmlFor=check.id;
+ label.append(check,node('span','','I’ve read the house rules and agree to respect this community.'));f.form.append(label);f.actions.append(button('Not now','secondary',()=>$('#modal').close()));f.finish();
+}
+function guidelines(){renderHouseRules(showModal('Our house rules.'));}
+const signupRules=$('#signup-house-rules');if(signupRules)renderHouseRules(signupRules);
 $('#guidelines').onclick=guidelines;
 function profile(user){const r=showModal(user.name);r.append(node('span','avatar',user.initials),node('p','',user.bio));if(user.id!==state.session.user.id){const blocked=state.feed.blocked.includes(user.id);r.append(button(blocked?'Unblock account':'Block account','secondary',()=>act(async()=>{await api('/blocks','POST',{authorId:user.id,blocked:!blocked});await finish(blocked?'Account unblocked.':'Account blocked from your feed.');})));}}
 function heading(title,subtitle){$('#view-heading').append(node('h1','section-heading',title),node('p','section-lead',subtitle));}

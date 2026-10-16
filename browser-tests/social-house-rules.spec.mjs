@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {createSocialApp} from '../social-app/app.js';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {once} from 'node:events';
+test('first contribution shows house rules; dismissal does not accept; acceptance survives reload',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'kv-rules-ui-'));
+ const server=createSocialApp({dataDir:dir,ownerEmail:'owner@kv.test',ownerPassword:'owner-password-123',inviteCode:'invite-code-2026',production:false}).listen(0,'127.0.0.1');await once(server,'listening');
+ const browser=await chromium.launch({headless:true});t.after(async()=>{await browser.close();server.closeAllConnections();server.close();rmSync(dir,{recursive:true,force:true});});
+ const page=await browser.newPage({viewport:{width:390,height:844}});await page.goto('http://127.0.0.1:'+server.address().port);
+ await page.getByRole('button',{name:'Create account',exact:true}).click();await page.getByText('Read our house rules',{exact:true}).click();assert.ok(await page.locator('#signup-house-rules').getByText('Come as you are.',{exact:true}).isVisible());
+ await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.locator('#login-email').fill('owner@kv.test');await page.locator('#login-password').fill('owner-password-123');await page.getByRole('button',{name:'Enter KV Social'}).click();await page.locator('#compose').click();
+ await page.getByRole('heading',{name:'Welcome to the house.'}).waitFor();await page.getByRole('button',{name:'Not now',exact:true}).click();await page.locator('#compose').click();await page.getByRole('heading',{name:'Welcome to the house.'}).waitFor();
+ const agree=page.getByRole('button',{name:'I agree — let’s create'});await agree.click();assert.equal(await page.locator('#accept-house-rules').isChecked(),false);assert.equal(await page.locator('#field-text').count(),0);
+ await page.locator('#accept-house-rules').check();await agree.click();await page.locator('#field-text').waitFor();await page.locator('#close-modal').click();await page.reload();await page.locator('#compose').click();await page.locator('#field-text').waitFor();assert.equal(await page.locator('#accept-house-rules').count(),0);
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+});

@@ -12,7 +12,7 @@ test('video feed supports muted visible playback, offscreen stop and Data Saver'
  const server=createSocialApp({dataDir:dir,ownerEmail:'owner@kv.test',ownerPassword:'owner-password-123',inviteCode:'invite-code-2026',production:false}).listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const browser=await chromium.launch({headless:true});t.after(async()=>{await browser.close();server.close();rmSync(dir,{recursive:true,force:true});});
  const page=await browser.newPage({viewport:{width:1200,height:800}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
- const user={id:'member',name:'Video Member',initials:'VM',role:'member'};
+ const user={id:'member',name:'Video Member',initials:'VM',role:'member',houseRulesVersion:'2026-10-16'};
  await page.route('**/api/session',r=>r.fulfill({json:{csrf:'test',user,role:'member',videoEnabled:true}}));
  await page.route('**/api/feed',r=>r.fulfill({json:{posts:[{id:'post',videoId:'video',author:user,text:'Test video',topic:'Music',theme:'none',createdAt:new Date().toISOString(),reactions:0}],users:[user],blocked:[],topics:['Music']}}));
  await page.route('**/api/videos/video/playback',r=>r.fulfill({json:{url:'https://player.mediadelivery.net/embed/780138/video?token=test&autoplay=true&muted=true',thumbnail:'https://vz-3374d7e5-dd2.b-cdn.net/video/thumbnail.jpg?token=test',expiresAt:Date.now()+300000}}));
@@ -29,7 +29,7 @@ test('composer validates duration and media exclusivity and shows upload progres
  for(const [name,length] of [['short',1],['valid',30]])execFileSync('ffmpeg',['-v','error','-f','lavfi','-i','color=c=black:s=32x32:r=1','-t',String(length),'-c:v','libvpx','-pix_fmt','yuv420p',join(dir,name+'.webm')]);
  const server=createSocialApp({dataDir:dir,ownerEmail:'owner@kv.test',ownerPassword:'owner-password-123',inviteCode:'invite-code-2026',production:false}).listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const browser=await chromium.launch({headless:true});t.after(async()=>{await browser.close();server.close();rmSync(dir,{recursive:true,force:true});});
- const page=await browser.newPage();const user={id:'member',name:'Member',initials:'MM',role:'member'};let post;
+ const page=await browser.newPage();const user={id:'member',name:'Member',initials:'MM',role:'member',houseRulesVersion:'2026-10-16'};let post;
  await page.route('**/api/session',r=>r.fulfill({json:{csrf:'test',user,role:'member',videoEnabled:true}}));
  await page.route('**/api/feed',r=>r.fulfill({json:{posts:[],users:[user],blocked:[],topics:['Music']}}));
  await page.route('**/api/videos',r=>r.fulfill({status:201,json:{videoId:'test-video',csrf:'test',uploadUrl:'/api/videos/test-video/upload'}}));
