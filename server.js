@@ -1,3 +1,5 @@
+import {csvCell} from './lib/report.js';
+import {memberDashboard} from './lib/member-dashboard.js';
 import {legacyPageDestination} from './lib/public-urls.js';
 import {registerActivityRoutes} from './lib/activity-routes.js';
 import {commerceClientIdentity} from './lib/commerce-client-identity.js';
@@ -248,6 +250,20 @@ function sessionCookie(token,maxAge=Math.floor(sessionTtlMs/1000)){ return `${se
 function pruneSessions(){ const now=Date.now(); for(const [token,session] of sessions)if(session.expiresAt<=now)sessions.delete(token); while(sessions.size>1000)sessions.delete(sessions.keys().next().value); }
 function auth(req,res,next){ res.set('Cache-Control','no-store'); const token=cookieValue(req,sessionCookieName),session=sessions.get(token); if(!session||session.expiresAt<=Date.now()){if(token)sessions.delete(token);return res.status(401).json({error:'Sign in required.'});} const user=readStore().users.find(u=>u.id===session.userId); if(!user) return res.status(401).json({error:'Sign in required.'}); req.user=user; req.sessionToken=token; next(); }
 function owner(req,res,next){ if(req.user?.role!=='owner') return res.status(403).json({error:'Owner access required.'}); next(); }
+// Owner-only, read-only access to the same scoped model used by member sessions.
+app.get('/api/disciples/member-preview',auth,owner,(req,res)=>{
+ res.json({disciples:readStore().disciples.filter(d=>d.status==='active').map(d=>({id:d.id,name:d.name,handle:d.handle}))});
+});
+app.get(['/api/disciples/:id/member-preview','/api/disciples/:id/member-preview/earnings.csv'],auth,owner,(req,res)=>{
+ try{
+  const store=readStore(),data=memberDashboard(store,req.params.id),disciple=store.disciples.find(d=>d.id===req.params.id);
+  if(req.path.endsWith('/earnings.csv')){
+   const keys=['id','orderId','category','sourceLabel','eligibleBase','ratePercent','amount','status','earnedAt','payoutDate','paidAt'];
+   return res.type('text/csv').set('Content-Disposition','attachment; filename="kvn-disciple-preview-earnings.csv"').send([keys,...data.earnings.map(row=>keys.map(key=>row[key]))].map(row=>row.map(csvCell).join(',')).join('\n'));
+  }
+  res.json({...data,preview:true,account:{username:'Hidden in owner preview',email:disciple.email,lastLoginAt:null}});
+ }catch(error){res.status(error.statusCode||503).json({error:error.statusCode?error.message:'Disciple preview is temporarily unavailable.'});}
+});
 const crmConfigured=Boolean(process.env.CRM_SOURCE_URL&&process.env.CRM_SYNC_SECRET);
 let crmStorageReady=false;
 const runCrmSync=async()=>{
