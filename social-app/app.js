@@ -136,7 +136,8 @@ export function createSocialApp({
       if(!['GET','HEAD'].includes(req.method)){
         const expected=`${req.protocol}://${req.get('host')}`;
         if(req.get('origin')!==expected)throw fail(403,'Same-origin request required.');
-        if(!req.is('application/json'))throw fail(415,'JSON required.');
+        const chunk=req.method==='PATCH'&&/^\/videos\/[0-9a-f-]{36}\/upload$/i.test(req.path)&&req.is('application/offset+octet-stream');
+        if(!chunk&&!req.is('application/json'))throw fail(415,'JSON required.');
       }
       next();
     }catch(error){next(error);}
@@ -282,11 +283,40 @@ export function createSocialApp({
     if(state.videos.length>=500||state.videos.filter(v=>v.ownerId===req.user.id&&v.createdAt>now()-86400000).length>=10)throw fail(429,'Video upload allowance reached. Contact the beta team.');
     const reservation={id:randomUUID(),ownerId:req.user.id,createdAt:now(),uploadExpires:0,status:'starting'};
     state.videos.push(reservation);await write(state);
-    const grant=await videoProvider.createUpload();
+    const grant=await videoProvider.startUpload(await videoProvider.createUpload(),req.body.size,req.body.type);
     state=await read();const record=videoRecord(state,reservation.id);
-    Object.assign(record,{id:grant.videoId,uploadExpires:grant.expirationTime,status:'uploading'});await write(state);
+    Object.assign(record,{...grant,id:grant.videoId,uploadExpires:grant.expirationTime,status:'uploading'});await write(state);
     if(getUser(state,req.user.id)?.suspended)throw fail(403,'Posting is suspended.');
-    res.set('Cache-Control','no-store').status(201).json(grant);
+    res.set('Cache-Control','no-store').status(201).json({videoId:grant.videoId,uploadUrl:'/api/videos/'+grant.videoId+'/upload',csrf:req.session.csrf});
+  });
+  const uploadLocks=new Set();
+  async function ownedUpload(req){
+    active(req);requireVideo();const v=videoRecord(await read(),req.params.id);
+    if(v.ownerId!==req.user.id)throw fail(404,'Video unavailable.');
+    if(now()>=v.uploadExpires*1000)throw fail(410,'Upload authorization expired. Choose the video again.');
+    if(!v.uploadUrl||!Number.isSafeInteger(v.size)||v.size<1||v.size>100*1024*1024)throw fail(409,'Create a new upload.');
+    return v;
+  }
+  route('head','/videos/:id/upload',async(req,res)=>{
+    const v=await ownedUpload(req),status=await videoProvider.uploadStatus(v);
+    res.set({'Tus-Resumable':'1.0.0','Upload-Length':String(v.size),'Upload-Offset':String(status.offset),'Cache-Control':'no-store'}).status(200).end();
+  });
+  route('patch','/videos/:id/upload',async(req,res)=>{
+    const v=await ownedUpload(req),rawOffset=req.get('Upload-Offset');
+    if(req.get('Tus-Resumable')!=='1.0.0'||!/^\d+$/.test(rawOffset||''))throw fail(400,'Invalid upload offset.');
+    const offset=Number(rawOffset),maximum=Math.min(5*1024*1024,v.size-offset);
+    if(!Number.isSafeInteger(offset)||maximum<=0)throw fail(413,'Upload exceeds the allowed size.');
+    if(Number(req.get('Content-Length'))>maximum)throw fail(413,'Upload exceeds the allowed size.');
+    if(uploadLocks.has(v.id)||uploadLocks.size>=4)throw fail(409,'Another upload is in progress. Retry shortly.');
+    uploadLocks.add(v.id);
+    try{
+      const parts=[];let size=0;
+      for await(const part of req){size+=part.length;if(size>maximum)throw fail(413,'Upload exceeds the allowed size.');parts.push(part);}
+      if(!size)throw fail(400,'Upload chunk is empty.');
+      await ownedUpload(req);
+      const next=await videoProvider.uploadChunk(v,offset,Buffer.concat(parts,size));
+      res.set({'Tus-Resumable':'1.0.0','Upload-Offset':String(next),'Cache-Control':'no-store'}).status(204).end();
+    }finally{uploadLocks.delete(v.id);}
   });
   route('get','/videos/:id',async(req,res)=>{
     requireVideo();const state=await read(),v=videoRecord(state,req.params.id);

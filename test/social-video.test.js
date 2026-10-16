@@ -46,7 +46,7 @@ import {randomUUID} from 'node:crypto';
 async function runtime(t,{enabled=true}={}){
  const dir=mkdtempSync(join(tmpdir(),'kv-video-'));let clock=1800000000000;
  const videos=new Map();
- const provider={cdnHost:'vz-3374d7e5-dd2.b-cdn.net',async createUpload(){const videoId=randomUUID();videos.set(videoId,{ready:true,failed:false,duration:45,thumbnail:'thumbnail.jpg',originalHash:'a'.repeat(64)});return{videoId,expirationTime:Math.floor(clock/1000)+600,signature:'scoped-signature',libraryId:'780138'};},async inspectVideo(id){return videos.get(id);},playbackUrl:id=>'https://player.mediadelivery.net/embed/780138/'+id+'?token=signed',thumbnailUrl:id=>'https://vz-3374d7e5-dd2.b-cdn.net/'+id+'/thumbnail.jpg?token=signed'};
+ const provider={cdnHost:'vz-3374d7e5-dd2.b-cdn.net',async createUpload(){const videoId=randomUUID();videos.set(videoId,{ready:true,failed:false,duration:45,thumbnail:'thumbnail.jpg',originalHash:'a'.repeat(64)});return{videoId,expirationTime:Math.floor(clock/1000)+600,signature:'scoped-signature',libraryId:'780138'};},async startUpload(grant,size){videos.get(grant.videoId).offset=0;return{...grant,size,uploadUrl:'https://video.bunnycdn.com/tusupload/test'};},async uploadStatus(v){return{offset:videos.get(v.id).offset,size:v.size};},async uploadChunk(v,offset,bytes){const video=videos.get(v.id);if(video.offset!==offset)throw Object.assign(Error('Offset mismatch'),{status:409});video.offset+=bytes.length;return video.offset;},async inspectVideo(id){return videos.get(id);},playbackUrl:id=>'https://player.mediadelivery.net/embed/780138/'+id+'?token=signed',thumbnailUrl:id=>'https://vz-3374d7e5-dd2.b-cdn.net/'+id+'/thumbnail.jpg?token=signed'};
  const app=createSocialApp({dataDir:dir,ownerEmail:'owner@kv.test',ownerPassword:'owner-password-123',inviteCode:'invite-code-2026',production:false,videoProvider:enabled?provider:null,now:()=>clock});
  const server=app.listen(0,'127.0.0.1');await once(server,'listening');
  t.after(()=>{server.closeAllConnections();server.close();rmSync(dir,{recursive:true,force:true});});
@@ -58,7 +58,7 @@ async function runtime(t,{enabled=true}={}){
  }
  async function member(email){const s={};const r=await request('/register','POST',{name:'Video Member',email,password:'member-password-123',inviteCode:'invite-code-2026',communityAgreement:true},s);assert.equal(r.status,201);s.user=r.data.user;return s;}
  const a=await member('a@kv.test'),b=await member('b@kv.test'),owner={};await request('/login','POST',{email:'owner@kv.test',password:'owner-password-123'},owner);
- return{request,a,b,owner,videos,advance:ms=>clock+=ms};
+ return{base,request,a,b,owner,videos,advance:ms=>clock+=ms};
 }
 const uploadBody={size:1024,type:'video/mp4'};
 const postBody=videoId=>({text:'A video for our community '+videoId,topic:'Music',theme:'none',videoId});
@@ -107,4 +107,37 @@ test('video playback follows moderation, blocks and suspension, and approval wai
 test('missing video configuration leaves text posts functional',async t=>{
  const r=await runtime(t,{enabled:false});assert.equal((await r.request('/videos','POST',uploadBody,r.a)).status,503);
  assert.equal((await r.request('/posts','POST',{text:'Text still works.',topic:'Music'},r.a)).status,201);
+});
+
+test('upload gateway binds bytes to declared size without exposing provider authority',async t=>{
+ const r=await runtime(t),grant=(await r.request('/videos','POST',{size:4,type:'video/mp4'},r.a)).data;
+ assert.equal(grant.signature,undefined);
+ assert.equal(grant.uploadUrl,'/api/videos/'+grant.videoId+'/upload');
+ const path=grant.uploadUrl.replace('/api','');
+ const raw=async(session,offset,bytes)=>fetch(r.base+'/api'+path,{method:'PATCH',headers:{Origin:r.base,Cookie:session.cookie,'X-CSRF-Token':session.csrf,'Content-Type':'application/offset+octet-stream','Tus-Resumable':'1.0.0','Upload-Offset':String(offset)},body:bytes});
+ assert.equal((await raw(r.b,0,'abcd')).status,404);
+ assert.equal((await raw({...r.a,csrf:'bad'},0,'abcd')).status,403);
+ assert.equal((await raw(r.a,0,'abcde')).status,413);
+ const first=await raw(r.a,0,'ab');assert.equal(first.status,204);assert.equal(first.headers.get('upload-offset'),'2');
+ assert.equal((await raw(r.a,0,'ab')).status,409);
+ const head=await fetch(r.base+'/api'+path,{method:'HEAD',headers:{Cookie:r.a.cookie}});assert.equal(head.status,200);assert.equal(head.headers.get('upload-offset'),'2');assert.equal(head.headers.get('upload-length'),'4');
+ assert.equal((await raw(r.a,2,'cd')).status,204);
+ assert.equal((await raw(r.a,4,'e')).status,413);
+ r.advance(601000);assert.equal((await raw(r.a,0,'a')).status,410);
+});
+test('provider TUS sessions fix upload length and reject untrusted upload hosts',async()=>{
+ const {createVideoProvider}=await import('../social-app/video.js');
+ const uploadUrl='https://video.bunnycdn.com/tusupload/opaque';let offset=0;
+ const p=createVideoProvider({...config,fetchImpl:async(url,opts)=>{
+  if(url.endsWith('/videos'))return Response.json({guid:id});
+  if(opts.method==='POST'){assert.equal(opts.headers['Upload-Length'],'4');return new Response(null,{status:201,headers:{Location:uploadUrl}});}
+  assert.equal(url,uploadUrl);assert.equal(opts.headers.VideoId,id);
+  if(opts.method==='PATCH')offset+=opts.body.length;
+  return new Response(null,{status:opts.method==='PATCH'?204:200,headers:{'Upload-Offset':String(offset),'Upload-Length':'4'}});
+ }});
+ const grant=await p.createUpload(),v=await p.startUpload(grant,4,'video/mp4');
+ assert.equal((await p.uploadStatus(v)).size,4);assert.equal(await p.uploadChunk(v,0,Buffer.from('abcd')),4);
+ await assert.rejects(p.uploadStatus({...v,uploadUrl:'https://evil.example/tusupload/opaque'}));
+ const bad=createVideoProvider({...config,fetchImpl:async()=>new Response(null,{status:201,headers:{Location:'https://evil.example'}})});
+ await assert.rejects(bad.startUpload(grant,4,'video/mp4'));
 });

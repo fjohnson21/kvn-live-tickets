@@ -17,8 +17,8 @@ export async function uploadVideo(file,api,onProgress,signal){
  const grant=await api('/videos','POST',{size:file.size,type:file.type});
  if(signal.aborted)throw Error('Upload cancelled.');
  await new Promise((resolve,reject)=>{
-  const upload=new window.tus.Upload(file,{endpoint:grant.endpoint,chunkSize:5*1024*1024,retryDelays:[0,1000,3000,5000],storeFingerprintForResuming:false,
-   headers:{AuthorizationSignature:grant.signature,AuthorizationExpire:String(grant.expirationTime),VideoId:grant.videoId,LibraryId:grant.libraryId},
+  const upload=new window.tus.Upload(file,{uploadUrl:grant.uploadUrl,chunkSize:5*1024*1024,retryDelays:[0,1000,3000,5000],storeFingerprintForResuming:false,
+   headers:{'X-CSRF-Token':grant.csrf},
    metadata:{filetype:file.type,title:'KV Social upload',thumbnailTime:'1000'},
    onProgress:(sent,total)=>onProgress(`Uploading video: ${Math.round(sent/total*100)}%`),
    onError:()=>{signal.removeEventListener('abort',cancel);reject(Error('Video upload interrupted. Try again on a stable connection.'));},

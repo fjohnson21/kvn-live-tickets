@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 import {createSocialApp} from '../social-app/app.js';
 import {once} from 'node:events';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -32,9 +32,9 @@ test('composer validates duration and media exclusivity and shows upload progres
  const page=await browser.newPage();const user={id:'member',name:'Member',initials:'MM',role:'member'};let post;
  await page.route('**/api/session',r=>r.fulfill({json:{csrf:'test',user,role:'member',videoEnabled:true}}));
  await page.route('**/api/feed',r=>r.fulfill({json:{posts:[],users:[user],blocked:[],topics:['Music']}}));
- await page.route('**/api/videos',r=>r.fulfill({status:201,json:{videoId:'test-video',libraryId:'780138',signature:'test',expirationTime:Math.floor(Date.now()/1000)+600,endpoint:'https://video.bunnycdn.com/tusupload'}}));
- await page.route('https://video.bunnycdn.com/**',r=>{
-  const req=r.request();r.fulfill({status:req.method()==='POST'?201:204,headers:{'Access-Control-Allow-Origin':'*','Access-Control-Expose-Headers':'Location,Upload-Offset,Tus-Resumable','Location':'https://video.bunnycdn.com/tusupload/test','Tus-Resumable':'1.0.0','Upload-Offset':String(req.postDataBuffer()?.length||0)}});
+ await page.route('**/api/videos',r=>r.fulfill({status:201,json:{videoId:'test-video',csrf:'test',uploadUrl:'/api/videos/test-video/upload'}}));
+ await page.route('**/api/videos/test-video/upload',r=>{
+  const req=r.request();r.fulfill({status:req.method()==='HEAD'?200:204,headers:{'Upload-Length':String(statSync(join(dir,'valid.webm')).size),'Tus-Resumable':'1.0.0','Upload-Offset':String(req.postDataBuffer()?.length||0)}});
  });
  await page.route('**/api/videos/test-video',r=>r.fulfill({json:{ready:true,failed:false,duration:30}}));
  await page.route('**/api/posts',async r=>{post=r.request().postDataJSON();await r.fulfill({status:201,json:{post:{id:'post'}}});});
