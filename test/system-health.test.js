@@ -67,3 +67,13 @@ test('requires an explicitly configured persistent data directory', () => {
   assert.equal(storage.status, 'failed');
   assert.equal(result.summary.criticalMissing, 1);
 });
+
+test('direct Command Center approvals do not require the disabled legacy sync integration', () => {
+  const env = { ...completeEnv }; delete env.DISCIPLE_SYNC_SECRET;
+  const result = buildSystemHealth(env, { ok: true, ownerAuthReady: true }, {});
+  const sync = result.checks.find(item => item.key === 'disciple_sync');
+  assert.equal(sync.required, false);
+  assert.equal(sync.status, 'ready');
+  assert.match(sync.detail, /Command Center.*legacy.*disabled/i);
+  assert.equal(result.summary.criticalMissing, 0);
+});
