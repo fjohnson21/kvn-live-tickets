@@ -24,7 +24,7 @@ test('KV Social invited beta works as a mobile real-account community',async()=>
     await page.locator('#invite-code').fill(inviteCode);
     await page.locator('#community-agreement').check();
     await page.getByRole('button',{name:/Create my account/}).click();
-    await page.getByRole('heading',{name:'Your people. Your purpose.'}).waitFor();
+    await page.locator('#shell').waitFor({state:'visible'});
 
     for(const width of [320,390,768]){
       await page.setViewportSize({width,height:844});
@@ -110,7 +110,7 @@ test('KV Social email link requires a deliberate confirmation click on mobile',a
     await page.locator('#login-email').fill('mobile-verify@example.com');
     await page.locator('#login-password').fill('member-password-123');
     await page.getByRole('button',{name:/Enter KV Social/}).click();
-    await page.getByRole('heading',{name:'Your people. Your purpose.'}).waitFor();
+    await page.locator('#shell').waitFor({state:'visible'});
     await page.close();
   }finally{
     await browser?.close();await new Promise(resolve=>server.close(resolve));
