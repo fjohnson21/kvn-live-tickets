@@ -30,6 +30,8 @@ export function createSocialApp({
   emailFrom,
   mailer,
   videoProvider=null,
+  publicBaseUrl=process.env.KV_SOCIAL_PUBLIC_BASE_URL,
+  proxySecret=process.env.KV_SOCIAL_PROXY_SECRET,
   production=process.env.NODE_ENV==='production',
   sessionMs=7*24*60*60*1000,
   now=Date.now
@@ -110,7 +112,10 @@ export function createSocialApp({
     return token;
   }
   const tokenRecord=(state,key,raw)=>state[key]?.find(item=>!item.usedAt&&item.tokenHash===hashToken(raw)&&new Date(item.expiresAt).getTime()>now());
-  const requestOrigin=req=>`${req.protocol}://${req.get('host')}`;
+  const brandedBase=publicBaseUrl?String(publicBaseUrl).replace(/\/$/,''):null;
+  if(brandedBase&&brandedBase!=='https://kvnlive.com/social')throw new Error('Invalid KV Social public base URL.');
+  const requestOrigin=req=>brandedBase||`${req.protocol}://${req.get('host')}`;
+  const clientKey=req=>req.socialClient||req.ip;
 
 
   function createSession(res,user){
@@ -134,7 +139,11 @@ export function createSocialApp({
   });
   app.use('/api',(req,res,next)=>{
     try{
-      rate('ip:'+req.ip,240);
+      if(req.get('x-kv-social-proxy')){
+        if(!proxySecret||proxySecret.length<32||!safeSecret(req.get('x-kv-social-proxy'),proxySecret)||!/^[-a-f0-9]{64}$/.test(req.get('x-kv-social-client')||''))throw fail(403,'Invalid community gateway.');
+        req.socialClient='gateway:'+req.get('x-kv-social-client');
+      }
+      rate('ip:'+clientKey(req),240);
       if(!['GET','HEAD'].includes(req.method)){
         const expected=`${req.protocol}://${req.get('host')}`;
         if(req.get('origin')!==expected)throw fail(403,'Same-origin request required.');
@@ -149,7 +158,7 @@ export function createSocialApp({
   app.post('/api/register',async(req,res,next)=>{
     try{
       await ready;
-      rate('register:'+req.ip,8,60*60*1000);
+      rate('register:'+clientKey(req),8,60*60*1000);
       exact(req.body,['name','email','password','inviteCode','communityAgreement']);
       if(req.body.communityAgreement!==true)throw fail(400,'Accept the KV Social community agreement to continue.');
       if(!safeSecret(String(req.body.inviteCode||''),String(inviteCode)))throw fail(403,'This beta invitation code is not valid.');
@@ -174,7 +183,7 @@ export function createSocialApp({
   app.post('/api/login',async(req,res,next)=>{
     try{
       await ready;
-      rate('login:'+req.ip,12,15*60*1000);
+      rate('login:'+clientKey(req),12,15*60*1000);
       exact(req.body,['email','password']);
       const email=normalizeEmail(req.body.email),state=await read(),user=state.users.find(item=>item.email===email&&['member','owner'].includes(item.role));
       if(!user||!verifyPassword(req.body.password,user.passwordHash))throw fail(401,'Email or password is incorrect.');
@@ -186,7 +195,7 @@ export function createSocialApp({
 
   app.post('/api/resend-verification',async(req,res,next)=>{
     try{
-      await ready;rate('verify-resend:'+req.ip,4,60*60*1000);exact(req.body,['email']);
+      await ready;rate('verify-resend:'+clientKey(req),4,60*60*1000);exact(req.body,['email']);
       const email=normalizeEmail(req.body.email),state=await read(),user=state.users.find(item=>item.email===email&&item.role==='member');
       if(user&&user.emailVerified!==true&&sendAccountEmail){
         const token=issueToken(state,'emailVerificationTokens',user.id,24*60*60*1000);await write(state);
@@ -200,7 +209,7 @@ export function createSocialApp({
   app.post('/api/verify-email',async(req,res,next)=>{
     try{
       await ready;
-      rate('verify-confirm:'+req.ip,12,15*60*1000);
+      rate('verify-confirm:'+clientKey(req),12,15*60*1000);
       exact(req.body,['token']);
       const raw=String(req.body.token||'');
       if(!/^[0-9a-f]{64}$/i.test(raw))throw fail(400,'This verification link is invalid or expired.');
@@ -218,7 +227,7 @@ export function createSocialApp({
 
   app.post('/api/password/forgot',async(req,res,next)=>{
     try{
-      await ready;rate('password-forgot:'+req.ip,5,60*60*1000);exact(req.body,['email']);
+      await ready;rate('password-forgot:'+clientKey(req),5,60*60*1000);exact(req.body,['email']);
       const email=normalizeEmail(req.body.email),state=await read(),user=state.users.find(item=>item.email===email&&['member','owner'].includes(item.role));
       if(user&&user.emailVerified===true&&sendAccountEmail){
         const token=issueToken(state,'passwordResetTokens',user.id,60*60*1000);await write(state);
@@ -230,7 +239,7 @@ export function createSocialApp({
 
   app.post('/api/password/reset',async(req,res,next)=>{
     try{
-      await ready;rate('password-reset:'+req.ip,8,60*60*1000);exact(req.body,['token','password']);
+      await ready;rate('password-reset:'+clientKey(req),8,60*60*1000);exact(req.body,['token','password']);
       const raw=String(req.body.token||''),password=validatePassword(req.body.password),state=await read(),record=tokenRecord(state,'passwordResetTokens',raw);
       if(!record)throw fail(400,'This password reset link is invalid or expired.');
       const user=getUser(state,record.userId);if(!user)throw fail(400,'This password reset link is invalid or expired.');
