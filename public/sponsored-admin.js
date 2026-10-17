@@ -8,7 +8,7 @@
   if(!pending.length){parent.textContent='No pending verification requests.';return;}
   for(const c of pending){const item=document.createElement('details'),title=document.createElement('summary');title.textContent=`${c.name} — ${c.email} — ${c.expired?'Expired':'Pending'}`;item.append(title);
     const detail=document.createElement('p');detail.textContent=`${c.quantity} pass(es) · ${c.phone} · Email: ${c.verificationEmail?.status||'unknown'}`;item.append(detail);
-    const button=document.createElement('button');button.textContent='Resend Verification';button.addEventListener('click',async()=>{button.disabled=true;notice('Sending a fresh verification email…');try{await api('verification/resend',{claimId:c.id});await load();notice('Fresh verification email accepted by provider. Link expires in 30 minutes.');}catch(e){notice(e.message);}finally{button.disabled=false;}});item.append(button);parent.append(item);
+    const button=document.createElement('button');button.textContent='Resend Verification';button.addEventListener('click',async()=>{button.disabled=true;notice('Sending a fresh verification email…');try{await api('verification/resend',{claimId:c.id});await load();notice('Fresh verification email accepted by provider. Link expires in 48 hours.');}catch(e){notice(e.message);}finally{button.disabled=false;}});item.append(button);parent.append(item);
   }
  }
  $('manualIssue').addEventListener('submit',async event=>{
