@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {createSocialApp} from '../social-app/app.js';
+import {once} from 'node:events';
+import {mkdtempSync,rmSync,statSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+test('video feed supports muted visible playback, offscreen stop and Data Saver',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'social-video-ui-'));
+ const server=createSocialApp({dataDir:dir,ownerEmail:'owner@kv.test',ownerPassword:'owner-password-123',inviteCode:'invite-code-2026',production:false}).listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const browser=await chromium.launch({headless:true});t.after(async()=>{await browser.close();server.close();rmSync(dir,{recursive:true,force:true});});
+ const page=await browser.newPage({viewport:{width:1200,height:800}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const user={id:'member',name:'Video Member',initials:'VM',role:'member',houseRulesVersion:'2026-10-16'};
+ await page.route('**/api/session',r=>r.fulfill({json:{csrf:'test',user,role:'member',videoEnabled:true}}));
+ await page.route('**/api/feed',r=>r.fulfill({json:{posts:[{id:'post',videoId:'video',author:user,text:'Test video',topic:'Music',theme:'none',createdAt:new Date().toISOString(),reactions:0}],users:[user],blocked:[],topics:['Music']}}));
+ await page.route('**/api/videos/video/playback',r=>r.fulfill({json:{url:'https://player.mediadelivery.net/embed/780138/video?token=test&autoplay=true&muted=true',thumbnail:'https://vz-3374d7e5-dd2.b-cdn.net/video/thumbnail.jpg?token=test',expiresAt:Date.now()+300000}}));
+ await page.route('https://player.mediadelivery.net/**',r=>r.fulfill({body:'<p>Provider player fixture</p>',contentType:'text/html'}));
+ await page.goto('http://127.0.0.1:'+server.address().port);await page.locator('.post-video').scrollIntoViewIfNeeded();
+ await page.locator('.post-video iframe').waitFor();assert.match(await page.locator('.post-video iframe').getAttribute('src'),/muted=true/);
+ await page.getByRole('button',{name:'Data Saver: off'}).click();assert.equal(await page.locator('.post-video iframe').count(),0);
+ await page.getByRole('button',{name:'Play video'}).click();await page.locator('.post-video iframe').waitFor();
+ await page.evaluate(()=>document.querySelector('.post-video').style.marginTop='3000px');await page.evaluate(()=>window.scrollTo(0,0));
+ await page.waitForFunction(()=>!document.querySelector('.post-video iframe'));assert.deepEqual(errors,[]);
+});
+test('composer validates duration and media exclusivity and shows upload progress',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'social-upload-ui-'));
+ for(const [name,length] of [['short',1],['valid',30]])execFileSync('ffmpeg',['-v','error','-f','lavfi','-i','color=c=black:s=32x32:r=1','-t',String(length),'-c:v','libvpx','-pix_fmt','yuv420p',join(dir,name+'.webm')]);
+ const server=createSocialApp({dataDir:dir,ownerEmail:'owner@kv.test',ownerPassword:'owner-password-123',inviteCode:'invite-code-2026',production:false}).listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const browser=await chromium.launch({headless:true});t.after(async()=>{await browser.close();server.close();rmSync(dir,{recursive:true,force:true});});
+ const page=await browser.newPage();const user={id:'member',name:'Member',initials:'MM',role:'member',houseRulesVersion:'2026-10-16'};let post;
+ await page.route('**/api/session',r=>r.fulfill({json:{csrf:'test',user,role:'member',videoEnabled:true}}));
+ await page.route('**/api/feed',r=>r.fulfill({json:{posts:[],users:[user],blocked:[],topics:['Music']}}));
+ await page.route('**/api/videos',r=>r.fulfill({status:201,json:{videoId:'test-video',csrf:'test',uploadUrl:'/api/videos/test-video/upload'}}));
+ await page.route('**/api/videos/test-video/upload',r=>{
+  const req=r.request();r.fulfill({status:req.method()==='HEAD'?200:204,headers:{'Upload-Length':String(statSync(join(dir,'valid.webm')).size),'Tus-Resumable':'1.0.0','Upload-Offset':String(req.postDataBuffer()?.length||0)}});
+ });
+ await page.route('**/api/videos/test-video',r=>r.fulfill({json:{ready:true,failed:false,duration:30}}));
+ await page.route('**/api/posts',async r=>{post=r.request().postDataJSON();await r.fulfill({status:201,json:{post:{id:'post'}}});});
+ await page.goto('http://127.0.0.1:'+server.address().port);await page.locator('#compose').click();
+ await page.locator('#post-video').setInputFiles(join(dir,'short.webm'));await page.locator('#field-text').fill('A short video for the community.');await page.getByRole('button',{name:'Submit for review'}).click();
+ await page.getByRole('alert').filter({hasText:'30–60'}).waitFor({timeout:18000}).catch(async e=>{console.log(await page.locator('#modal-body').innerText());throw e;});assert.equal(post,undefined);
+ await page.locator('#post-video').setInputFiles(join(dir,'valid.webm'));assert.equal(await page.locator('#post-photo').isDisabled(),true);
+ await page.getByRole('button',{name:'Submit for review'}).click();await page.waitForFunction(()=>document.querySelector('#toast').textContent==='Submitted for human review.');assert.equal(post.videoId,'test-video');assert.equal(post.photoData,undefined);
+});

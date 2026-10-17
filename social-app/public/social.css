@@ -10,3 +10,36 @@
 .auth-switch{display:flex;gap:8px;margin:22px 0 8px}.auth-switch button{flex:1;border:1px solid var(--line);background:white;font-size:11px}.auth-switch button.active{background:var(--ink);color:white;border-color:var(--ink)}.auth-form[hidden]{display:none}.agreement{display:flex;gap:10px;align-items:flex-start;font-size:11px;line-height:1.5;margin:18px 0}.agreement input{width:18px;min-height:18px;margin:0;flex:0 0 18px}.profile-card{background:white;border:1px solid var(--line);border-radius:12px;padding:22px}.profile-card h2{margin:8px 0}.profile-card .avatar{margin-bottom:8px}
 
 .post-photo{display:block;width:100%;max-height:620px;object-fit:cover;background:#eceae6;border:0}.modal-body .post-photo,dialog .post-photo{border-radius:10px;max-height:420px;margin:10px 0 18px}input[type=file]{padding:10px;background:white;font-size:11px}
+
+.post-video{position:relative;aspect-ratio:9/12;max-height:70vh;background:#111;overflow:hidden;display:grid;place-items:center}.post-video img{position:absolute;width:100%;height:100%;object-fit:contain}.post-video iframe{position:absolute;inset:0;width:100%;height:100%;border:0}.video-play{position:relative;z-index:1;background:#fff;color:#111;padding:14px 22px;border:0;font:inherit;font-weight:700;cursor:pointer}.video-status{font-size:14px;line-height:1.5}.post-video .video-status{position:absolute;bottom:0;left:0;right:0;padding:12px;color:#fff;background:#111}.post-video .video-status:empty{display:none}
+
+
+@font-face{font-family:"KV Display";src:url("/assets/Anton-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}
+/* Approved KV Social sample: crown identity and editorial community layout. */
+:root{--ink:#080808;--red:#ef1b24;--paper:#f6f5f2;--line:#dededb;--display:Impact,"KV Display","Arial Narrow",sans-serif}
+button,input,textarea,select,.post,.purpose-card,.event-card,.login-art,.review-card,.profile-card,.empty,dialog,.stat{border-radius:0}
+.chip{border-radius:18px}.avatar{border-radius:50%}
+.pilot-bar{background:#1a1a1a}.pulse{background:var(--red)}
+.topbar{height:96px;background:var(--ink);color:white;border-color:#303030;padding:0 max(24px,calc((100vw - 1360px)/2))}
+.wordmark{gap:12px;letter-spacing:normal}.wordmark>img{width:52px;height:52px;object-fit:contain;flex-shrink:0}
+.brand-copy strong{display:block;font-family:var(--display);font-size:39px;font-weight:400;line-height:.95;letter-spacing:-1px}
+.brand-copy b{font-weight:400;color:var(--red)}.brand-copy small{display:block;font-size:6px;letter-spacing:1.65px;margin-top:7px;color:#ccc;font-weight:400}
+.top-tagline{font-size:9px;letter-spacing:1.4px;color:#999;margin-left:auto}.topbar .quiet{border-color:#555;color:white;flex-shrink:0}
+.shell{max-width:1408px;grid-template-columns:195px minmax(0,680px) 270px;gap:37px}
+.nav-item.active{border-left:3px solid var(--red);padding-left:11px;background:#e9e8e3}
+.sidebar-footer p{font-family:var(--display);font-weight:400;font-size:28px;line-height:1;letter-spacing:0}.sidebar-crown{width:38px;height:38px;object-fit:contain}
+.intro{position:relative;min-height:248px;background:var(--ink);color:white;padding:29px 30px;margin-bottom:21px}
+.intro>div{position:relative;z-index:1;max-width:90%}.intro h1{font-family:var(--display);font-weight:400;font-size:clamp(35px,4.4vw,61px);line-height:.93;letter-spacing:-1.4px;margin:15px 0}
+.intro .eyebrow{color:#b4b4b4;font-size:8px;letter-spacing:1.5px}.intro p{color:#bbb;font-size:11px;max-width:310px;margin:0}.brand-period{color:var(--red)}
+.hero-crown{position:absolute;right:-32px;bottom:-25px;width:215px;height:215px;object-fit:contain;opacity:.17;transform:rotate(-10deg)}
+.compose-plus{background:none;color:var(--red);border-radius:0}.rightbar{padding-top:0}
+.purpose-card{background:#0b0b0b;color:white;padding:27px 22px}.purpose-card h2{font-family:var(--display);font-weight:400;font-size:38px;line-height:1.02;letter-spacing:0}.purpose-card p{color:#bbb}.purpose-card .rule{background:#444}
+.spotlight h3,.event-card h3,.section-heading,.art-title{font-family:var(--display);font-weight:400;text-transform:uppercase}.spotlight h3{font-size:29px}.art-title{font-size:48px;letter-spacing:-.5px}
+.login-art{background:var(--ink)}.login-art h1{font-family:var(--display);font-weight:400;font-size:clamp(44px,5vw,68px);line-height:.95;letter-spacing:-1.4px}.login-art>.eyebrow{position:relative;z-index:1;color:#b4b4b4}.login-art p{color:#bbb}.login-crown{position:absolute;width:320px;height:320px;object-fit:contain;right:-55px;bottom:-35px;opacity:.17;transform:rotate(-10deg)}.login-foot{z-index:1}
+.login-form h2{font-family:var(--display);font-weight:400;font-size:36px;text-transform:uppercase;letter-spacing:-.5px}
+@media(max-width:1150px){.shell{grid-template-columns:170px minmax(0,1fr);max-width:950px;gap:25px}.rightbar{display:none}}
+@media(max-width:650px){.topbar{height:83px;padding:0 18px;gap:10px}.wordmark{gap:9px}.wordmark>img{width:40px;height:40px}.brand-copy strong{font-size:32px}.brand-copy small{font-size:5px;letter-spacing:1px}.shell{display:block;padding:0 14px 40px}.intro{min-height:230px;margin-top:20px;padding:25px 22px}.intro h1{font-size:40px}.intro>div{max-width:100%}.intro .eyebrow{font-size:7px}.hero-crown{width:175px;height:175px;right:-38px}.login-art{min-height:290px;padding:27px}.login-art h1{font-size:46px}.login-crown{width:220px;height:220px;right:-45px;bottom:-45px}.login-form h2{font-size:30px}.nav-item{border-radius:0}.art-title{font-size:38px}}
+
+@media(max-width:650px){.sidebar nav .nav-item{flex-shrink:0}.intro h1{font-size:36px}}
+
+.house-rules-tagline{font-weight:700;font-size:16px;line-height:1.5}.house-rules-intro{padding:18px;background:var(--ink);color:white;border-left:4px solid var(--red);line-height:1.7}.house-rules-list{padding-left:23px}.house-rules-list li{padding:8px 0 12px 6px;border-bottom:1px solid var(--line)}.house-rules-list li::marker{color:var(--red);font-weight:700}.house-rules-list h3{font-size:15px;margin:5px 0}.house-rules-list p{font-size:12px;line-height:1.7;margin:7px 0}.signup-rules{margin-top:20px;border:1px solid var(--line);padding:14px;font-size:12px}.signup-rules summary{cursor:pointer;font-weight:700;min-height:30px;align-content:center}.signup-rules summary:focus-visible{outline:3px solid var(--red);outline-offset:3px}
