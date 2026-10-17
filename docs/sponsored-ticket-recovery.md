@@ -1,0 +1,9 @@
+# Sponsored verification recovery
+
+Guests awaiting complimentary passes were stranded when the 30-minute email proof expired. The owner list's Expired label means verification expired, not that an issued ticket expired. Provider delivery also does not prove that the guest completed verification.
+
+New requests and owner/guest refreshes now use a 48-hour verification window. The branded pass page offers an explicit fresh-email action for expired and replaced proofs. Recovery sends only to the original stored email, rotates the proof, retains bounded recovery hashes, and permits another explicit request after ten minutes. Guest recovery is limited to seven days from the original request; older requests require owner help. No recovery request creates an admission. Claim confirmation retains existing cap, duplicate, quantity, invitation and referral checks.
+
+Existing expired proofs are not silently reactivated. Existing claims and orders are not migrated or reissued. No customer messages were sent during implementation or validation. Bounced addresses require confirmation by the guest or owner; no inferred address corrections or suppression bypasses are included.
+
+Validation: backend 444/444 tests and syntax checks; new behavior reproduced failing before implementation. Site unit suite 134 pass / 3 existing failures (disciple-page-copy, revenue-impact, shop-navigation), affected recovery and commerce tests pass, typecheck and verified production build pass. Site legacy suite 26 pass / 20 failures; all 20 failing test names reproduced on the untouched source baseline. Those homepage/preview expectations are outside this correction. Independent review found a stale-proof retry gap, fixed with 404 and 410 UI regressions and a retry timer. Browser rendering still requires remote CI; actual owner session and production recipient delivery are not established by these automated tests.
