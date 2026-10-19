@@ -1,3 +1,5 @@
+import {createTxt180Client} from './lib/sms-txt180.js';
+import {createSmsContactsService} from './lib/sms-contacts.js';
 import {registerSmsOptIn} from './lib/sms-opt-in.js';
 import {createSmsCampaignService} from './lib/sms-campaigns.js';
 import {registerSmsRoutes} from './lib/sms-routes.js';
@@ -105,8 +107,11 @@ function recordStripeReversal(event){
 }
 
 const smsTwilioClient=createTwilioClient({env:process.env});
-const smsDispatcher=createSmsDispatcher({readStore,writeStore,client:smsTwilioClient,env:process.env});
+const smsTxt180Client=createTxt180Client({env:process.env});
+const smsContacts=process.env.SMS_PROVIDER==='txt180'?createSmsContactsService({readStore,writeStore,client:smsTxt180Client,env:process.env}):null;
+const smsDispatcher=createSmsDispatcher({readStore,writeStore,client:smsContacts?smsTxt180Client:smsTwilioClient,env:process.env,beforeDispatch:smsContacts?()=>smsContacts.syncOptouts():null});
 smsDispatcher.start();
+if(smsContacts)smsContacts.verifyConnection().then(()=>console.log('TXT180 customer API connection verified.')).catch(()=>console.error('TXT180 customer API connection check failed.'));
 registerSmsOptIn(app,{env:process.env});
 registerSmsWebhooks(app,{readStore,writeStore,client:smsTwilioClient,env:process.env});
 
@@ -305,7 +310,7 @@ app.use(['/api/sponsored/info','/api/sponsored/request','/api/sponsored/confirm'
 registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,claimPageUrl:'https://kvnlive.com/promo',launchPolicy:{launchAt:'2026-10-12T18:10:00Z',testTokenHash:'e4a968a617e4075593410bc93871c0c0fca8ca3472d1451f1418a45500b639bc'},retryUpgrade:accessToken=>recoverSponsoredCheckout({readStore,writeStore,stripe,finalizeSession},accessToken)});
 registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
 const smsCampaignService=createSmsCampaignService({readStore,writeStore,env:process.env});
-registerSmsRoutes(app,{auth,owner,readStore,writeStore,campaignService:smsCampaignService,dispatcher:smsDispatcher,env:process.env});
+registerSmsRoutes(app,{auth,owner,readStore,writeStore,campaignService:smsCampaignService,dispatcher:smsDispatcher,contactsService:smsContacts,env:process.env});
 const marketingRoutes = registerMarketingRoutes(app,{auth,owner,readStore,writeStore,baseUrl,engagement:marketingEngagement});
 const businessActions=createBusinessActionService({readStore,writeStore,campaignTransport:marketingRoutes.broadcasts});
 registerBusinessActionRoutes(app,{auth,owner,service:businessActions});
