@@ -1,3 +1,4 @@
+import {routeSurveyLeads} from './lib/survey-leads.js';
 import fs from 'fs';
 import { ensureCrmCollections } from './lib/crm-records.js';
 import path from 'path';
@@ -37,6 +38,7 @@ export function readStore(){
   return ensureCrmCollections(ensureShopCollections(d));
 }
 export function writeStore(data){
+  routeSurveyLeads(data);
   const temp=path.join(dataDir, `.store-${process.pid}-${crypto.randomBytes(8).toString('hex')}.tmp`);
   try {const mode=fs.existsSync(file)?fs.statSync(file).mode&0o777:0o600;fs.writeFileSync(temp,JSON.stringify(data,null,2),{mode,flag:'wx'});fs.renameSync(temp,file);return data;} finally {if(fs.existsSync(temp))fs.unlinkSync(temp);}
 }
