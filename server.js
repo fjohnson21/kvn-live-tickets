@@ -1,3 +1,4 @@
+import {routeSurveyLeads} from './lib/survey-leads.js';
 import {createTxt180Client} from './lib/sms-txt180.js';
 import {createSmsContactsService} from './lib/sms-contacts.js';
 import {registerSmsOptIn} from './lib/sms-opt-in.js';
@@ -71,7 +72,10 @@ import { deliverShopConfirmation } from './lib/shop-email.js';
 import { shopMetrics, shopOrdersCsv } from './lib/shop-report.js';
 
 const startupStore = readStore();
-if (synchronizeKvnLive2026Event(startupStore)) writeStore(startupStore);
+const eventUpdated=synchronizeKvnLive2026Event(startupStore);
+const surveyRouting=routeSurveyLeads(startupStore);
+if(eventUpdated||surveyRouting.created||surveyRouting.updated)writeStore(startupStore);
+console.log('Survey lead routing verified: '+JSON.stringify(surveyRouting));
 
 const app = express();
 app.set('trust proxy', true);
