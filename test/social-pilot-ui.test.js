@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import {once} from 'node:events';
+import {JSDOM} from 'jsdom';
+import {createSocialApp} from '../social-pilot/app.js';
+const memberKey='ui-synthetic-member-32-character-key',ownerKey='ui-synthetic-owner-32-character-key';
+const wait=async check=>{for(let i=0;i<100;i++){if(check())return;await new Promise(r=>setTimeout(r,10));}throw Error('UI condition timed out');};
+test('real API-backed UI submits plain text, shows pending status and keeps owner desk private',async()=>{
+ const server=createSocialApp({memberKey,ownerKey}).listen(0,'127.0.0.1');await once(server,'listening');const base=`http://127.0.0.1:${server.address().port}`;
+ const html=await fs.readFile(new URL('../social-pilot/public/index.html',import.meta.url),'utf8');const js=await fs.readFile(new URL('../social-pilot/public/social.js',import.meta.url),'utf8');
+ const dom=new JSDOM(html,{url:base,runScripts:'outside-only'});const w=dom.window;let cookie='';
+ w.fetch=async(path,opts={})=>{const r=await fetch(base+path,{...opts,headers:{...opts.headers,Origin:base,...(cookie?{Cookie:cookie}:{})}});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return r;};
+ w.HTMLDialogElement.prototype.showModal=function(){this.open=true};w.HTMLDialogElement.prototype.close=function(){this.open=false};
+ try{
+  w.eval(js);await new Promise(r=>setTimeout(r,20));w.document.querySelector('#access-key').value=memberKey;w.document.querySelector('#login-form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+  await wait(()=>w.document.querySelectorAll('article.post').length===4);
+  assert.equal(w.document.querySelector('#owner-nav').hidden,true);
+  assert.ok(w.document.querySelector('article').textContent.includes('Editorial sample'));
+  assert.ok(w.document.querySelector('#mobile-artists button[aria-label="Discover Imani Raeford"]'));
+  w.document.querySelector('#mobile-artists button').click();
+  [...w.document.querySelectorAll('#modal button')].find(b=>b.textContent==='View artist posts').click();
+  await wait(()=>w.document.querySelectorAll('article.post').length===2);
+  assert.ok(w.document.querySelector('article.post').textContent.includes('Imani Raeford'));
+  w.document.querySelector('[data-view=feed]').click();
+  await wait(()=>w.document.querySelectorAll('article.post').length===4);
+  w.document.querySelector('#compose').click();w.document.querySelector('[name=text]').value='A thoughtful synthetic community message.';
+  w.document.querySelector('#modal form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await wait(()=>!w.document.querySelector('#modal').open);
+  assert.ok(!w.document.querySelector('#content').textContent.includes('A thoughtful synthetic community message.'));
+  w.document.querySelector('[data-view=activity]').click();await wait(()=>w.document.querySelector('#content').textContent.includes('A thoughtful synthetic community message.'));
+  assert.ok(w.document.querySelector('#content').textContent.includes('pending'));
+  const normalFetch=w.fetch;let releaseActivity;
+  w.fetch=async(path,options)=>{const response=await normalFetch(path,options);if(path==='/api/activity')await new Promise(r=>releaseActivity=r);return response;};
+  w.document.querySelector('[data-view=activity]').click();await wait(()=>releaseActivity);
+  w.document.querySelector('[data-view=feed]').click();await wait(()=>w.document.querySelectorAll('article.post').length===4);
+  releaseActivity();await new Promise(r=>setTimeout(r,30));
+  assert.equal(w.document.querySelectorAll('#content .review-card').length,0,'Late activity response must not overwrite the feed');
+  w.document.querySelector('#guidelines').click();assert.ok(w.document.querySelector('#modal-body').textContent.includes('Negative sentiment alone is not a violation.'));
+  w.document.querySelector('#close-modal').click();assert.equal(w.document.querySelector('#modal').open,false);
+ }finally{w.close();await new Promise(r=>server.close(r));}
+});
