@@ -8,7 +8,8 @@
     "dev": "node --watch server.js",
     "test": "node --test",
     "check": "node --check server.js && node --check public/app.js && node --check public/dashboard.js && node --check public/checkin.js && node --check public/event.js && node --check lib/performance-agreements.js && node --check lib/performance-agreement-routes.js && node --check public/performance-agreements.js && node --check public/performance-agreement.js && node --check lib/marketing-engagement.js && node --check lib/marketing-routes.js && node --check public/marketing-dashboard.js && node --check lib/sponsored-passes.js && node --check lib/sponsored-routes.js && node --check lib/sponsored-checkout.js && node --check public/sponsored.js && node --check public/sponsored-admin.js",
-    "test:mobile": "node --test browser-tests/*.spec.mjs"
+    "test:mobile": "node --test browser-tests/*.spec.mjs",
+    "prestart": "node scripts/import-survey-sms.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
