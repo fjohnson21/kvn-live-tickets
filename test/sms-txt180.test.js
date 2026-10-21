@@ -1,8 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createTxt180Client} from '../lib/sms-txt180.js';
+import {XMLParser} from 'fast-xml-parser';
 import {smsConnectionStatus} from '../lib/sms-model.js';
 const env={SMS_PROVIDER:'txt180',TXT180_API_KEY:'private-test-key',TXT180_ACCOUNT_ID:'7520',TXT180_SHORT_CODE:'8882020121',TXT180_KEYWORD:'kingdom',TXT180_SMS_SENDING_ENABLED:'true'};
+test('reseller sends select one recipient directly under sms, without a contacts wrapper',async()=>{
+ let calls=0;
+ const body='KVN: A & B <test>. Reply STOP to opt out.';
+ const c=createTxt180Client({env,fetchImpl:async(url,options)=>{
+  calls++;
+  assert.equal(url,'https://secure.txtpkg.com/api.php');
+  const sms=new XMLParser({parseTagValue:false}).parse(options.body).sms;
+  assert.equal(sms.command,'send_message');
+  assert.equal(sms.account_id,'7520');
+  assert.equal(sms.short_code,'8882020121');
+  assert.equal(sms.keyword,'kingdom');
+  assert.equal(sms.message,body);
+  assert.equal(sms.contact_number,'+17045550123');
+  for(const unsafe of ['contacts','contact_id','groups','all_contacts'])assert.equal(Object.hasOwn(sms,unsafe),false);
+  return new Response('<sms><ok/></sms>');
+ }});
+ assert.deepEqual(await c.sendMessage({to:'+17045550123',body}),{status:'accepted',sid:null});
+ assert.equal(calls,1);
+});
 test('TXT180 connects without Twilio credentials and does not expose its key',()=>{const s=smsConnectionStatus(env);assert.equal(s.provider,'txt180');assert.equal(s.sendingEnabled,true);assert.ok(!JSON.stringify(s).includes(env.TXT180_API_KEY));});
 test('TXT180 uses corrected endpoint and XML escaping for contact creation',async()=>{let request;const c=createTxt180Client({env,fetchImpl:async(url,options)=>{request={url,...options};return new Response('<sms><contact_id>123</contact_id></sms>');}});assert.equal((await c.addContact({phone:'+17045550123',name:'A & B <C>'})).contactId,'123');assert.equal(request.url,'https://secure.txtpkg.com/api.php');assert.equal(request.redirect,'error');assert.match(request.body,/<short_code>8882020121<\/short_code>/);assert.match(request.body,/A &amp; B &lt;C&gt;/);});
 test('TXT180 handles both documented contact response formats',async()=>{const c=createTxt180Client({env,fetchImpl:async()=>new Response('<sms><contact_added id="456">+17045550123</contact_added></sms>')});assert.equal((await c.addContact({phone:'+17045550123'})).contactId,'456');});
