@@ -1,3 +1,4 @@
+import {closePublicCompOffer,ticketCapacity} from './lib/admission-transition.js';
 import {routeSurveyLeads} from './lib/survey-leads.js';
 import {createTxt180Client} from './lib/sms-txt180.js';
 import {createSmsContactsService} from './lib/sms-contacts.js';
@@ -73,8 +74,9 @@ import { shopMetrics, shopOrdersCsv } from './lib/shop-report.js';
 
 const startupStore = readStore();
 const eventUpdated=synchronizeKvnLive2026Event(startupStore);
+const compOfferClosed=closePublicCompOffer(startupStore);
 const surveyRouting=routeSurveyLeads(startupStore);
-if(eventUpdated||surveyRouting.created||surveyRouting.updated)writeStore(startupStore);
+if(eventUpdated||compOfferClosed||surveyRouting.created||surveyRouting.updated)writeStore(startupStore);
 console.log('Survey lead routing verified: '+JSON.stringify(surveyRouting));
 
 const app = express();
@@ -330,7 +332,7 @@ if(crmConfigured){
 }
 function canManage(user,event){ return user.role==='owner' || ((user.role==='organizer'||user.role==='staff') && event.organizationId===user.organizationId); }
 function canonicalPass(e,p){if(e.slug!=='kingdom-vibe-live-2026')return p;const name=({'kv-all-access-2026':'Kingdom VIP Pass Bundle','kv-kingdom-pass-2026':'Kingdom Pass Bundle'})[p.id];return name?{...p,name}:p;}
-function publicEvent(e,orders=[]){ return {...e, products:e.products.map(p=>{const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...canonicalPass(e,p),available:p.salesEnd&&Date.now()>=Date.parse(p.salesEnd)?0:Math.max(0,p.inventory-p.sold),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
+function publicEvent(e,orders=[]){ return {...e, products:e.products.filter(p=>!p.retired).map(p=>{const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...canonicalPass(e,p),available:p.salesEnd&&Date.now()>=Date.parse(p.salesEnd)?0:ticketCapacity(e,p,orders),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
 function discipleRate(disciple,eventId){
   const override=(disciple.eventRates||[]).find(x=>x.eventId===eventId);
   return Math.max(0,Math.min(100,Number(override?.percent ?? disciple.defaultCommissionPercent ?? readStore().settings.defaultDiscipleCommissionPercent ?? 0)));
@@ -648,12 +650,12 @@ app.post('/api/create-checkout-session', customerCheckout.middleware('ticket'), 
     const cart=Array.isArray(req.body.cart)?req.body.cart:[]; if(!cart.length) return res.status(400).json({error:'Your cart is empty.'});
     let subtotal=0, groupDiscountAmount=0, earlyReleaseDiscountAmount=0; const normalized=[]; const lineItems=[];
     for(const item of cart){
-      const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct) continue; const canonical=canonicalPass(e,sourceProduct),p=(req.body.promotion===PROMO_VIP_OFFER||sponsoredClaim)&&canonical.id==='kv-all-access-2026'?promoVipProduct(canonical):canonical; if(p.salesEnd&&Date.now()>=Date.parse(p.salesEnd))return res.status(400).json({error:'The Community Pass release has ended. Please choose an available bundle.'});
+      const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct||sourceProduct.retired)return res.status(409).json({error:'This pass is no longer on sale. Please choose $15 General Admission or an available VIP pass.'}); const canonical=canonicalPass(e,sourceProduct),p=(req.body.promotion===PROMO_VIP_OFFER||sponsoredClaim)&&canonical.id==='kv-all-access-2026'?promoVipProduct(canonical):canonical; if(p.salesEnd&&Date.now()>=Date.parse(p.salesEnd))return res.status(400).json({error:'The Community Pass release has ended. Please choose an available bundle.'});
       if(p.type==='ticket'){
         // Reserve all pending ticket units, including sponsored upgrades, before calling Stripe.
         const pending=d.orders.filter(o=>o.eventId===e.id&&reservesTicketInventory(o)).flatMap(o=>o.items||[]).filter(i=>i.productId===p.id).reduce((n,i)=>n+Number(i.quantity||0),0);
         const inCart=normalized.filter(i=>i.productId===p.id).reduce((n,i)=>n+i.quantity,0);
-        if(Number(item.quantity)+pending+inCart>Number(p.inventory)-Number(p.sold))return res.status(409).json({error:'This bundle is reserved or sold out. Please try again later.'});
+        if(Number(item.quantity)+inCart>ticketCapacity(e,p,d.orders))return res.status(409).json({error:'This bundle is reserved or sold out. Please try again later.'});
         let result;try{result=normalizeTicketCartItem(p,item);if(p.earlyRelease?.enabled)result=applyEarlyReleasePricing(result,p,pendingEarlyReleaseUnits(d.orders,e.id,p.id)+normalized.filter(x=>x.productId===p.id).reduce((n,x)=>n+Number(x.earlyReleaseQuantity||0),0));}catch(err){if(err.statusCode)return res.status(err.statusCode).json({error:err.message});throw err;}
         subtotal+=result.item.ticketSubtotal+result.apparelSubtotal;groupDiscountAmount+=result.item.groupDiscountPerUnit*result.item.quantity;normalized.push(result.item);
         earlyReleaseDiscountAmount+=Number(result.item.earlyReleaseDiscountAmount||0);
