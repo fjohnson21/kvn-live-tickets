@@ -5,11 +5,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Stripe from 'stripe';
+import {allocateInvitations} from '../lib/sponsored-passes.js';
 import {createOwnerPasswordStore} from '../lib/owner-auth.js';
 
 test('sponsored claim, verified email, canonical VIP upgrade and check-in are isolated and idempotent',async t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'kvn-sponsored-'));
  const seed={users:[{id:'owner',role:'owner',name:'Test Owner'}],organizations:[{id:'org',status:'approved'}],events:[{id:'ev',slug:'kingdom-vibe-live-2026',organizationId:'org',products:[]}],orders:[],disciples:[{id:'dist',code:'DIST',status:'active',name:'Test Distributor',email:'dist@example.test',defaultCommissionPercent:10}],shopOrders:[{id:'shopold',status:'paid',buyerEmail:'guest@example.test',items:[]}],settings:{},discounts:[]};
+ seed.events[0].status='published';allocateInvitations(seed,{count:2,discipleId:'dist',requestId:'before-close'});
  fs.writeFileSync(path.join(dir,'store.json'),JSON.stringify(seed));createOwnerPasswordStore({dataDir:dir,bootstrapPassword:'test-only-password-123'});
  const sessionsUrl=new URL('../node_modules/stripe/esm/resources/Checkout/Sessions.js',import.meta.url).href;
  fs.writeFileSync(path.join(dir,'providers.mjs'),`Date.now=()=>Date.parse('2026-10-12T20:01:00Z');import {Sessions} from ${JSON.stringify(sessionsUrl)};import fs from 'node:fs';let count=0;Sessions.prototype.create=async function(config){const id='cs_test_'+(++count);fs.appendFileSync(${JSON.stringify(path.join(dir,'stripe.jsonl'))},JSON.stringify({id,config})+'\\n');return {id,url:'https://checkout.example.test/'+id};};const originalFetch=globalThis.fetch;globalThis.fetch=async(url,options)=>{if(String(url)==='https://api.resend.com/emails'){if(JSON.parse(options.body).subject.includes('shopold')){fs.writeFileSync(${JSON.stringify(path.join(dir,'mail-wait'))},'1');while(!fs.existsSync(${JSON.stringify(path.join(dir,'mail-release'))}))await new Promise(r=>setTimeout(r,10));}fs.appendFileSync(${JSON.stringify(path.join(dir,'emails.jsonl'))},options.body+'\\n');return {ok:true,json:async()=>({id:'email_test'})};}return originalFetch(url,options);};`);
@@ -20,7 +22,8 @@ test('sponsored claim, verified email, canonical VIP upgrade and check-in are is
  const post=(route,body,cookie)=>fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json',...(cookie?{cookie}:{})},body:JSON.stringify(body)});
  const login=await post('/api/auth/owner',{email:'owner@example.test',password:'test-only-password-123'});assert.equal(login.status,200);const cookie=login.headers.get('set-cookie').split(';')[0];
  assert.equal((await post('/api/sponsored/allocate',{count:1,requestId:'unauth'})).status,401);
- const allocate=await post('/api/sponsored/allocate',{count:2,discipleId:'dist',requestId:'batch'},cookie);assert.equal(allocate.status,201);const invites=(await allocate.json()).invitations;
+ const allocate=await post('/api/sponsored/allocate',{count:2,discipleId:'dist',requestId:'batch'},cookie);assert.equal(allocate.status,410);const invites=(await (await fetch(base+'/api/sponsored/admin',{headers:{cookie}})).json()).invitations;
+ assert.equal((await post('/api/sponsored/request',{name:'New',email:'new@example.test'})).status,410);
  const secret=new URL(invites[0].url).hash.split('=')[1];assert.ok(invites[0].url.startsWith('https://kvnlive.com/promo#invite='));
  const preflight=await fetch(base+'/api/sponsored/request',{method:'OPTIONS',headers:{Origin:'https://kvnlive.com','Access-Control-Request-Method':'POST'}});assert.equal(preflight.status,204);assert.equal(preflight.headers.get('access-control-allow-origin'),'https://kvnlive.com');assert.equal(preflight.headers.get('access-control-allow-credentials'),null);
  const branded=await fetch(base+'/api/sponsored/info',{method:'POST',headers:{Origin:'https://kvnlive.com','Content-Type':'application/json'},body:JSON.stringify({invitationToken:secret})});assert.equal(branded.status,200);

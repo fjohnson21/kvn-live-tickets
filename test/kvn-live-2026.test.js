@@ -25,17 +25,17 @@ test('synchronizes the KVN Live event to the approved two-pass catalog', () => {
   assert.equal(event.date, '2026-11-21T14:30:00-05:00');
   assert.deepEqual(event.products.map(product => [product.id, product.name, product.price, product.inventory]), [
     ['kv-all-access-2026', 'Kingdom VIP Pass Bundle', 4900, 600],
-    ['kv-kingdom-pass-2026', 'Kingdom Pass Bundle', 3900, 300]
+    ['kv-general-admission-2026', 'General Admission', 1500, 300]
   ]);
   assert.match(event.products[0].description, /ROWS 1–18/);
-  assert.match(event.products[1].description, /ROWS 19–35/);
+  assert.match(event.products[1].description, /General admission/);
   assert.ok(event.products.every(product => product.type === 'ticket'));
-  assert.ok(event.products.every(product => product.includedApparel.mode === 'included'));
-  assert.ok(event.products.every(product => product.includedApparel.name.includes('Not Self Made')));
-  assert.ok(event.products.every(product => product.includedApparel.sizes.includes('XXXXL')));
+  assert.equal(event.products[0].includedApparel.mode,'included');assert.equal(event.products[1].includedApparel.mode,'none');
+  assert.ok(event.products.filter(p=>p.includedApparel.mode==='included').every(product => product.includedApparel.name.includes('Not Self Made')));
+  assert.ok(event.products.filter(p=>p.includedApparel.mode==='included').every(product => product.includedApparel.sizes.includes('XXXXL')));
   assert.deepEqual(event.products.map(product => product.earlyRelease), [
     { enabled: true, discountAmount: 1000, unitLimit: 200 },
-    { enabled: true, discountAmount: 1000, unitLimit: 200 }
+    { enabled: false }
   ]);
   assert.ok(event.layout.every(block => block.type !== 'apparel'));
   assert.match(event.layout.map(block => block.body).join(' '), /Acts 2:44/);
@@ -80,7 +80,7 @@ test('publishes the approved national launch program without expanding standard 
   const [vip, standard] = event.products;
   assert.match(vip.description, /2:30 PM.*Kingdom Market Expo/);
   assert.match(vip.description, /priority seating/);
-  assert.match(standard.description, /5:00 PM Pre-Worship and seating/);
+  assert.match(standard.description, /Pre-Worship and seating at 5 PM/);
   assert.doesNotMatch(standard.description, /2:30 PM|priority seating|Expo/);
   assert.match(event.layout.find(block => block.id === 'kv-tickets').body, /Kingdom VIP/);
 });
@@ -102,7 +102,7 @@ test('approved descriptions flow into checkout while retaining commercial and at
   assert.deepEqual(commercial(store.events[0].products), before);
   assert.deepEqual({ orders: store.orders, tickets: store.tickets, disciples: store.disciples }, records);
   for (const product of store.events[0].products) {
-    const checkout = normalizeTicketCartItem(product, { quantity: 1, ticketSelections: [{ apparelSelected: true, apparelSize: 'M' }] });
+    const checkout = normalizeTicketCartItem(product, { quantity: 1, ticketSelections: [{ apparelSelected: product.includedApparel.mode==='included', apparelSize: product.includedApparel.mode==='included'?'M':null }] });
     assert.equal(checkout.ticketLineItem.description, product.description);
     assert.match(checkout.ticketLineItem.description, /Ministry Partners/);
     assert.doesNotMatch(checkout.ticketLineItem.description, /launch party/i);
