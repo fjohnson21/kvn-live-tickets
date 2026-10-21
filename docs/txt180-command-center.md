@@ -50,3 +50,35 @@ These settings do not enable scheduled imports or campaign sends.
 Group creation must include an empty default_message element. Command Center uses
 conservative group codes of at most six letters/digits (the operational groups use
 three or four); long codes are rejected by this reseller endpoint.
+
+## One-time unclaimed comp-pass recovery
+
+`scripts/recover-sponsored-sms.js` is inert unless explicitly configured by the
+operator following the owner's authorization. It runs in prestart with exclusive
+store access. Set `TXT180_RECOVERY_ID`, `TXT180_RECOVERY_SCOPE` (account:keyword:number)
+and `TXT180_RECOVERY_MODE=preview` first. The count-only startup summary reports
+unclaimed eligible contacts, exclusions, and original referral assignments. The
+snapshot is saved in `sms.claimRecoveryRuns`; preview does not create groups,
+rotate claim tokens, issue tickets, or send texts.
+
+For the reviewed snapshot, set mode to `send` and
+`TXT180_RECOVERY_EXPECTED_COUNT` to its exact eligible count. The job checks the
+snapshot against current claims and provider opt-outs, creates or reuses
+`Comp Tickets - Unclaimed Recovery` (code `claim`), and assigns eligible existing
+TXT180 contacts. It refreshes each existing claim for 48 hours and sends its
+private branded verification URL to that claim's original phone. The claim's
+ambassador ID, quantity, and invitation remain unchanged; the normal confirmation
+flow issues tickets only when the recipient follows the link, subject to capacity.
+Missing SMS consent, missing registered contacts, claimed identities, superseded
+requests, test records, and ambiguous identity/referral duplicates are excluded.
+
+The recovery run saves a Command Center campaign and individual attempt records;
+each attempt retains its actual `deliveryText` privately in the store. The campaign
+summary shows a private-link placeholder. Provider acceptance is not delivery.
+The TXT180 reseller endpoint rejected longer campaign messages in live testing;
+recovery messages are explicitly bounded to 160 characters.
+
+Every mutation is journaled before submission. Completed, blocked, or interrupted
+runs never resend automatically. Group or send uncertainty requires manual review.
+Remove the four recovery environment variables after execution and verification.
+The group is a snapshot of this recovery run, not a continuously refreshed list.
