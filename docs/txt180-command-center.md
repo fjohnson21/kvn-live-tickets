@@ -12,6 +12,15 @@ All mutations require owner authentication, a trusted JSON origin, and an idempo
 
 TXT180 `<ok/>` means accepted, not delivered. No delivery receipt or read receipt is claimed. Individual recipients are submitted from the immutable reviewed snapshot rather than sending to a mutable provider group. Local limits are estimates, not a dollar budget.
 
+The reseller endpoint requires `send_message` recipient `contact_number` directly
+under `sms`, alongside `message`. Do not use the `contacts` wrapper shown in the
+public customer API examples. The reseller documentation supplied by TXT180
+(`APIfull/newAPIdocs962011.txt`) specifies this direct-child format. On October 21,
+2026, wrapped phone and contact-ID requests returned error 1000, while the same
+owner-only test using the direct-child phone format returned `<ok/>`. Delivery
+still requires recipient confirmation. Do not automatically retry uncertain sends
+or fall back to group/all-contact delivery.
+
 Validation includes provider XML/response/error tests, permission and group behavior, owner/origin protection, complete contact→group→preview→release→dispatch flow, stale UI response guards, and mobile contact/group form coverage. No production campaign is sent during automated checks.
 
 ## Owner-approved survey import
