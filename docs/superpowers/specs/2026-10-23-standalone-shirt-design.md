@@ -1,0 +1,3 @@
+# Standalone shirt
+Approved requirements: exactly Kingdom VIP, General Admission, standalone T-shirt on KVN ticket selection. Shirt costs $29.99 in every size. Quantity dropdown creates one required size selector per shirt. Use existing Shop checkout, reservations, payment finalization and dashboard; retain historical orders and ticket inventory.
+Approach: reuse Shop checkout, not ticket apparel products (which would split inventory/reporting). Branded /passes embeds the Shop selector; legacy event page links to /shop. Existing $5 shipping and tax remain disclosed. Existing stored price configurations use the new current Drop 001 price without repricing paid orders. Quantity is bounded by currently unreserved stock.

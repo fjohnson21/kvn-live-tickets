@@ -6,7 +6,7 @@ test('publishes approved Drop 001 prices and sizes', () => {
   const catalog = publicShopCatalog(ensureShopCollections({}), new Date('2026-09-22T12:00:00Z'));
   assert.equal(catalog.products[0].id, DROP_001_PRODUCT.id);
   assert.deepEqual(catalog.products[0].variants.map(variant => [variant.size, variant.unitAmount]), [
-    ['S',3900],['M',3900],['L',3900],['XL',3900],['2XL',4200],['3XL',4200],['4XL',4200]
+    ['S',2999],['M',2999],['L',2999],['XL',2999],['2XL',2999],['3XL',2999],['4XL',2999]
   ]);
   assert.equal(catalog.shippingAmount, 500);
   assert.equal(catalog.totalInventory, 250);
