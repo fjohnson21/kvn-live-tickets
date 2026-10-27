@@ -35,3 +35,6 @@
 .marketing-engagement-stats strong,.marketing-engagement-stats span{display:block;overflow-wrap:anywhere}
 .marketing-engagement-stats strong{font-size:1.5rem}
 #marketingDialog details p{overflow-wrap:anywhere}
+
+/* Check-in results include attendee-controlled text; keep long values inside phones. */
+.checkin-shell .ticket-result,.checkin-shell #cameraStatus{overflow-wrap:anywhere;min-width:0}.checkin-shell .inline-actions{display:flex;flex-wrap:wrap;gap:8px}.checkin-shell button{min-height:44px}.checkin-shell button:disabled{opacity:.6;cursor:wait}
