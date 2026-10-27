@@ -1,0 +1,2 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {legacyPageDestination} from '../lib/public-urls.js';
+test('legacy human pages preserve query and never redirect backend APIs',()=>{assert.equal(legacyPageDestination('/dashboard.html','?view=orders'),'https://kvnlive.com/command-center?view=orders');assert.equal(legacyPageDestination('/sponsored-admin.html',''),'https://kvnlive.com/command-center/sponsored-passes');assert.equal(legacyPageDestination('/api/webhook',''),null);});

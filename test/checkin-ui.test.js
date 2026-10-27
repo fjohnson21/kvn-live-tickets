@@ -17,7 +17,7 @@ function setup(t){
 function submit(w){w.document.getElementById('code').value='KVN-TEST';w.document.getElementById('form').dispatchEvent(new w.Event('submit',{cancelable:true}));}
 test('check-in success renders every server field as text',async t=>{
  const w=setup(t),payload='<img src=x onerror="window.pwned=1">';
- w.fetch=async()=>({ok:true,status:200,json:async()=>({ticket:{ticketName:payload,code:payload},buyerName:payload,event:{title:payload}})});
+ w.fetch=async()=>({ok:true,status:200,json:async()=>({ticket:{ticketName:payload,code:'KVN-TEST'},buyerName:payload,event:{title:payload}})});
  submit(w);await tick();const result=w.document.getElementById('result');assert.equal(result.querySelectorAll('img').length,0);assert.match(result.textContent,/CHECKED IN/);assert.ok(result.textContent.includes(payload));
 });
 test('duplicate and permission errors render untrusted fields as text',async t=>{
@@ -78,4 +78,28 @@ test('a stale native detection failure cannot change stopped camera status',asyn
  w.BarcodeDetector=class{detect(){return new Promise((resolve,r)=>reject=r)}};
  w.navigator.mediaDevices={getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})};
  w.document.getElementById('startCamera').click();await tick();w.document.getElementById('stopCamera').click();reject(Error('stale detector'));await tick();assert.equal(w.document.getElementById('cameraStatus').textContent,'Camera stopped.');
+});
+
+test('failed camera check-in accepts the same QR after the removal cooldown',async t=>{
+ const w=setup(t);let visible=true,attempts=0,now=10000;
+ w.Date.now=()=>now;
+ w.BarcodeDetector=class{async detect(){return visible?[{rawValue:'KVN-TEST'}]:[]}};
+ w.navigator.mediaDevices={getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})};
+ w.fetch=async()=>++attempts===1?{ok:false,status:404,json:async()=>({error:'Ticket not found'})}:{ok:true,status:200,json:async()=>({ticket:{code:'KVN-TEST',ticketName:'Synthetic'},event:{title:'Test'}})};
+ w.document.getElementById('startCamera').click();await tick();
+ assert.match(w.document.getElementById('result').textContent,/Ticket not found/);
+ await new Promise(r=>setTimeout(r,350));assert.equal(attempts,1);
+ visible=false;now+=1300;await new Promise(r=>setTimeout(r,180));visible=true;
+ await new Promise(r=>setTimeout(r,180));assert.equal(attempts,2);assert.match(w.document.getElementById('result').textContent,/CHECKED IN/);
+});
+for(const kind of ['network','invalid-json','null','wrong-ticket'])test(`${kind} cannot confirm admission and allows manual retry`,async t=>{
+ const w=setup(t);
+ w.fetch=async()=>{if(kind==='network')throw Error('offline');return {ok:true,status:200,json:async()=>{if(kind==='invalid-json')throw Error('invalid JSON');return kind==='null'?null:{ticket:{code:'WRONG'},event:{title:'Test'}}}}};
+ submit(w);await tick();assert.doesNotMatch(w.document.getElementById('result').textContent,/CHECKED IN/);assert.equal(w.document.querySelector('#form button').disabled,false);
+ w.fetch=async()=>({ok:true,status:200,json:async()=>({ticket:{code:'KVN-TEST',ticketName:'Synthetic'},event:{title:'Test'}})});
+ submit(w);await tick();assert.match(w.document.getElementById('result').textContent,/CHECKED IN/);
+});
+test('expired session with a non-JSON response shows a sign-in action',async t=>{
+ const w=setup(t);w.fetch=async()=>({ok:false,status:401,json:async()=>{throw Error('HTML login response')}});
+ submit(w);await tick();assert.equal(w.document.querySelector('#result a')?.getAttribute('href'),'/dashboard.html');assert.doesNotMatch(w.document.getElementById('result').textContent,/CHECKED IN/);
 });

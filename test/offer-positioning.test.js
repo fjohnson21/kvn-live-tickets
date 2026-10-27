@@ -13,10 +13,10 @@ test('positions the current event offer as a pass bundle including Drop 001', ()
   const event = offerEvent();
   const phrase = 'Your tee purchase grants you a complimentary Kingdom Vibe Live pass.';
 
-  assert.match(event.description, /All passes include Drop 001/i);
-  assert.ok(event.products.every(product => product.includedApparel.enabled && product.includedApparel.price === 0));
-  assert.ok(event.products.every(product => product.description.includes(phrase)));
-  assert.match(event.layout.find(block => block.type === 'tickets').title, /Choose Your Shirt and Experience/i);
+  assert.match(event.description, /General Admission is \$15 without apparel/i);
+  assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.includedApparel.enabled && product.includedApparel.price === 0));
+  assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.description.includes(phrase)));
+  assert.match(event.layout.find(block => block.type === 'tickets').title, /Choose Your KV Live Experience/i);
   assert.match(event.layout.find(block => block.id === 'kv-wear').body, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
@@ -24,9 +24,9 @@ test('uses limited early prices before the automatic tier increase', async () =>
   const event = offerEvent();
   const source = await readFile(new URL('../public/event.js', import.meta.url), 'utf8');
 
-  assert.deepEqual(event.products.map(product => product.price), [4900, 3900]);
-  assert.ok(event.products.every(product => product.earlyRelease.enabled === true && product.earlyRelease.discountAmount === 1000));
-  assert.ok(event.products.every(product => product.earlyRelease.unitLimit === 200));
+  assert.deepEqual(event.products.map(product => product.price), [4900, 1500]);
+  assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.earlyRelease.enabled === true && product.earlyRelease.discountAmount === 1000));
+  assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.earlyRelease.unitLimit === 200));
   assert.match(source, /Purchase Pass/);
   assert.match(source, /Comp Ticket included/);
   assert.doesNotMatch(source, /Claim My Comp Pass/);
@@ -36,10 +36,11 @@ test('uses limited early prices before the automatic tier increase', async () =>
   assert.doesNotMatch(source, />Select Pass</);
 });
 
-test('both tiers raise exactly $10 after 200 and preserve historical orders', async () => {
+test('VIP raises exactly $10; GA stays at $15 after 200 and preserve historical orders', async () => {
   const { allocateEarlyRelease } = await import('../lib/checkout.js');
   const event = offerEvent();
-  for (const [index, p] of event.products.entries()) {
+  assert.equal(allocateEarlyRelease(event.products[1],2).subtotal,3000);
+  for (const [index, p] of event.products.slice(0,1).entries()) {
     const early = index === 0 ? 3900 : 2900;
     assert.equal(allocateEarlyRelease(p, 1).subtotal, early);
     assert.equal(allocateEarlyRelease({...p,sold:199}, 2).subtotal, early + early + 1000);

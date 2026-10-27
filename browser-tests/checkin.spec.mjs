@@ -101,6 +101,31 @@ for(const engine of selected){
    await p.close();
   }
  });
+ test(`${engine}: rejected ticket camera retry and protected admissions`,async t=>{
+  const {f,page,context}=await setup(t,engine);await camera(page,'native');await page.goto(f.base+'/checkin.html');
+  mutate(f,s=>s.orders.find(o=>o.id==='scan-order').paymentAttention=true);
+  await page.locator('#startCamera').click();await result(page,'no longer valid');assert.equal(ticket(f,'KVN-NATIVE03').checkedIn,false);
+  await page.evaluate(()=>cameraTest.blank=true);await page.waitForTimeout(1500);
+  mutate(f,s=>s.orders.find(o=>o.id==='scan-order').paymentAttention=false);
+  await page.evaluate(()=>cameraTest.blank=false);await result(page,'CHECKED IN');
+  await page.locator('#stopCamera').click();
+  for(const state of ['refunded','replaced']){
+   mutate(f,s=>{const o=s.orders.find(o=>o.id==='scan-order');o.status=state==='refunded'?'refunded':'paid';o.tickets.find(t=>t.code==='KVN-MANUAL02').status=state==='replaced'?'replaced':undefined});
+   await manual(page,'KVN-MANUAL02');await result(page,'no longer valid');assert.equal(ticket(f,'KVN-MANUAL02').checkedIn,false);
+  }
+  mutate(f,s=>s.orders.find(o=>o.id==='scan-order').tickets.find(t=>t.code==='KVN-MANUAL02').status=undefined);
+  const responses=await Promise.all([1,2].map(()=>context.request.post(f.base+'/api/checkin',{data:{code:'KVN-MANUAL02'}})));
+  assert.deepEqual(responses.map(r=>r.status()).sort(),[200,409]);assert.equal(ticket(f,'KVN-MANUAL02').checkedIn,true);
+ });
+ test(`${engine}: server and malformed responses recover without false admission`,async t=>{
+  const {f,page}=await setup(t,engine);await page.goto(f.base+'/checkin.html');
+  for(const response of [{status:503,contentType:'application/json',body:'{"error":"Synthetic failure"}'},{status:200,contentType:'text/html',body:'invalid response'}]){
+   await page.route('**/api/checkin',r=>r.fulfill(response));await manual(page,'KVN-MANUAL02');
+   await result(page,response.status===503?'Synthetic failure':'Unable to confirm');assert.equal(ticket(f,'KVN-MANUAL02').checkedIn,false);
+   assert.equal(await page.locator('#form button').isEnabled(),true);await page.unroute('**/api/checkin');
+  }
+  await manual(page,'KVN-MANUAL02');await result(page,'CHECKED IN');assert.equal(ticket(f,'KVN-MANUAL02').checkedIn,true);
+ });
  test(`${engine}: network failure is explicit, stops scanning and permits manual retry`,async t=>{
   const {f,page}=await setup(t,engine);await camera(page);await page.goto(f.base+'/checkin.html');
   await page.route('**/api/checkin',r=>r.abort());await page.locator('#startCamera').click();await result(page,'Unable to confirm');assert.equal(ticket(f,'KVN-CAMERA01').checkedIn,false);assert.equal(await page.evaluate(()=>cameraTest.stops),1);

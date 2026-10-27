@@ -1,0 +1,12 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {fixture} from '../browser-tests/fixture.mjs';
+test('owner session previews one active Disciple without creating a member session or changing records',async()=>{
+ const f=await fixture();try{const file=path.join(f.dir,'store.json'),store=JSON.parse(fs.readFileSync(file,'utf8'));store.disciples=[{id:'a',name:'Alice',email:'a@example.test',handle:'alice',status:'active'},{id:'b',name:'Bob',email:'b@example.test',handle:'bob',status:'active'},{id:'c',name:'Inactive',status:'inactive'}];store.discipleCommissions=[{id:'a-earned',discipleId:'a',amount:100,status:'pending',sourceLabel:'=unsafe()'},{id:'b-private',discipleId:'b',amount:999,status:'pending'}];fs.writeFileSync(file,JSON.stringify(store));
+ const endpoint='/api/disciples/a/member-preview';assert.equal((await fetch(f.base+endpoint)).status,401);
+ const login=await fetch(f.base+'/api/auth/owner',{method:'POST',headers:{origin:f.base,'content-type':'application/json'},body:JSON.stringify({email:'owner@example.test',password:'synthetic mobile password'})});const cookie=login.headers.get('set-cookie').split(';')[0],headers={cookie};
+ const list=await fetch(f.base+'/api/disciples/member-preview',{headers});assert.equal(list.status,200);assert.deepEqual((await list.json()).disciples.map(d=>d.id),['a','b']);
+ const before=fs.readFileSync(file,'utf8'),r=await fetch(f.base+endpoint,{headers});assert.equal(r.status,200);assert.equal(r.headers.get('set-cookie'),null);assert.match(r.headers.get('cache-control'),/no-store/);const data=await r.json();assert.equal(data.preview,true);const csv=await fetch(f.base+endpoint+'/earnings.csv',{headers});assert.equal(csv.status,200);const text=await csv.text();assert.ok(text.includes("'=unsafe()"));assert.ok(!text.includes('b-private'));assert.equal((await fetch(f.base+endpoint+'/earnings.csv')).status,401);assert.equal(data.profile.id,'a');assert.deepEqual(data.earnings.map(e=>e.id),['a-earned']);assert.equal(fs.readFileSync(file,'utf8'),before);
+ assert.equal((await fetch(f.base+'/api/disciples/c/member-preview',{headers})).status,403);
+ assert.equal((await fetch(f.base+'/api/member/dashboard',{headers})).status,401,'owner preview does not grant a member session');
+ store.users[0].role='staff';fs.writeFileSync(file,JSON.stringify(store));assert.equal((await fetch(f.base+endpoint,{headers})).status,403);
+ }finally{await f.close();}
+});

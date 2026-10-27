@@ -43,8 +43,11 @@
         method: 'POST', credentials: 'same-origin', signal: controller.signal,
         headers: {'Content-Type': 'application/json'}, body: JSON.stringify({code: clean})
       });
-      const data = await response.json();
-      if (response.ok && !data.ticket?.code) throw new Error('Invalid admission response');
+      const data = await response.json().catch(error => {
+        if (response.status === 401 || response.status === 403) return {error: 'Sign in with check-in permission before continuing.'};
+        throw error;
+      });
+      if (response.ok && data?.ticket?.code !== clean) throw new Error('Invalid admission response');
       showResult(response.ok, data);
       if (response.ok) code.value = '';
       if (response.status === 401 || response.status === 403) {

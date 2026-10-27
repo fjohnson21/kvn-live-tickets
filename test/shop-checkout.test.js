@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ensureShopCollections, DROP_001_PRODUCT } from '../lib/shop-catalog.js';
-import { buildShopCheckoutSession, normalizeShopCart } from '../lib/shop-checkout.js';
+import { buildShopCheckoutSession, normalizeShopCart, normalizeSponsoredShirtCart } from '../lib/shop-checkout.js';
 
 const PRODUCT=DROP_001_PRODUCT.id;
 
@@ -10,7 +10,7 @@ test('prices mixed sizes and charges shipping once',()=>{
     {productId:PRODUCT,size:'L',quantity:2},
     {productId:PRODUCT,size:'3XL',quantity:1}
   ]);
-  assert.deepEqual(result.totals,{merchandiseSubtotal:12000,shippingAmount:500});
+  assert.deepEqual(result.totals,{merchandiseSubtotal:8997,shippingAmount:500});
   assert.equal(result.lines.length,2);
 });
 
@@ -33,3 +33,4 @@ test('Stripe session requires shipping address and automatic tax',()=>{
   assert.equal(config.metadata.order_id,'sho_1');
   assert.equal(config.payment_intent_data.metadata.order_id,'sho_1');
 });
+test('verified sponsored guest shirt offer uses 29.99 preserves verified guest requirements',()=>{const store=ensureShopCollections({});store.sponsoredClaims=[{id:'claim',claimedAt:'2026-10-12',accessToken:'private',email:'guest@example.test',discipleId:'d'}];const cart=[{productId:PRODUCT,size:'3XL',quantity:1}];const result=normalizeSponsoredShirtCart(store,{sponsoredClaimToken:'private',email:'guest@example.test',cart});assert.equal(result.lines[0].unitAmount,2999);assert.equal(result.totals.shippingAmount,500);assert.equal(normalizeShopCart(store,cart).lines[0].unitAmount,2999);assert.throws(()=>normalizeSponsoredShirtCart(store,{sponsoredClaimToken:'bad',email:'guest@example.test',cart}));assert.throws(()=>normalizeSponsoredShirtCart(store,{sponsoredClaimToken:'private',email:'other@example.test',cart}));});

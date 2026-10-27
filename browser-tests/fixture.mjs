@@ -11,7 +11,7 @@ import {createEngagementStore} from '../lib/marketing-engagement.js';
 import {ensureMarketing,upsertContact} from '../lib/marketing.js';
 
 // A disposable, synthetic database only. Never copy the production store or .env.
-export async function fixture({engagementReports=false,checkin=false}={}){
+export async function fixture({engagementReports=false,checkin=false,surveyLeads=false}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'kvn-mobile-'));
  const socket=createServer();socket.listen(0,'127.0.0.1');await once(socket,'listening');const port=socket.address().port;await new Promise(r=>socket.close(r));
  let base=`http://localhost:${port}`;
@@ -22,6 +22,7 @@ export async function fixture({engagementReports=false,checkin=false}={}){
   store.events.push({id:'scan-event',slug:'synthetic-checkin',organizationId:'scan-org',title:hostile,products:[]});
   store.orders.push({id:'scan-order',eventId:'scan-event',status:'paid',buyerName:hostile,tickets:['KVN-CAMERA01','KVN-MANUAL02','KVN-NATIVE03'].map(code=>({code,ticketName:'Synthetic '+hostile,holderName:hostile,checkedIn:false}))});
  }
+ if(surveyLeads)store.sponsoredClaims=[{id:'synthetic-survey',name:'Survey Test Contact',email:'survey@example.test',phone:'9195550123',interests:['business','ministry','disciple'],createdAt:new Date().toISOString(),surveyCompletedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString(),accessToken:'never-expose'}];
  ensureMarketing(store);store.marketing.lists.push({id:'long-list',name:'LEGACY_FEST_TOUR_JEKALYN_CARR_Attendees_2103658948893_20261008_000928_065'});upsertContact(store,{email:'mobile@example.test',name:'Mobile Test Contact',listIds:['market'],permission:'unknown'});
  store.marketing.campaigns.push({id:'mobile-draft',revision:1,status:'draft',subject:'Synthetic mobile preview',body:'Test only. Never send.',listIds:['market'],recipients:[],createdAt:new Date().toISOString()});
  if(engagementReports){
