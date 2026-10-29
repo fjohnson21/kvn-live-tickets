@@ -1,3 +1,4 @@
+import { enrollMinistryAmbassador } from './lib/ministry-ambassador.js';
 import {closePublicCompOffer,ticketCapacity} from './lib/admission-transition.js';
 import {routeSurveyLeads} from './lib/survey-leads.js';
 import {createTxt180Client} from './lib/sms-txt180.js';
@@ -476,6 +477,17 @@ function validDiscipleIntakeSecret(req){
   const supplied=String(req.get('x-kvn-disciple-intake-secret')||'');
   return Boolean(expected&&supplied&&sameSecret(expected,supplied));
 }
+
+app.post('/api/integrations/disciples/ministry-invitation',async(req,res)=>{
+  if(!validDiscipleIntakeSecret(req))return res.status(401).json({error:'Invalid integration secret.'});
+  try{
+    const result=await enrollMinistryAmbassador(readStore(),req.body,{ip:req.ip,userAgent:req.get('user-agent')||''},{
+      id,persist:writeStore,reload:readStore,affiliateBaseUrl,
+      sendWelcome:({disciple,link,idempotencyKey})=>sendDiscipleWelcome({disciple,link,idempotencyKey,apiKey:process.env.RESEND_API_KEY,from:process.env.DISCIPLE_FROM_EMAIL||'Kingdom Vibe Network <info@tickets.kvnlive.com>'})
+    });
+    res.json(result);
+  }catch(error){res.status(error.statusCode||400).json({error:error.message||'Unable to enroll ministry.'});}
+});
 
 app.post('/api/integrations/disciples/applications',(req,res)=>{
   if(!validDiscipleIntakeSecret(req))return res.status(401).json({error:'Invalid integration secret.'});
