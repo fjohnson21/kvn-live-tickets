@@ -28,7 +28,7 @@ test('synchronizes the KVN Live event to the approved two-pass catalog', () => {
     ['kv-general-admission-2026', 'General Admission', 1500, 300]
   ]);
   assert.match(event.products[0].description, /ROWS 1–18/);
-  assert.match(event.products[1].description, /General admission/);
+  assert.match(event.products[1].description, /General admission/i);
   assert.ok(event.products.every(product => product.type === 'ticket'));
   assert.equal(event.products[0].includedApparel.mode,'included');assert.equal(event.products[1].includedApparel.mode,'none');
   assert.ok(event.products.filter(p=>p.includedApparel.mode==='included').every(product => product.includedApparel.name.includes('Not Self Made')));
@@ -67,7 +67,7 @@ test('does nothing when the target event is absent', () => {
  assert.equal(JSON.stringify({orders:store.orders,tickets:store.tickets}),records);
  });
 
-test('publishes the approved national launch program without expanding standard admission', () => {
+test('publishes the approved national launch program with full-day standard admission', () => {
   const store = fixture();
   synchronizeKvnLive2026Event(store);
   const event = store.events[0];
@@ -81,7 +81,10 @@ test('publishes the approved national launch program without expanding standard 
   assert.match(vip.description, /2:30 PM.*Kingdom Market Expo/);
   assert.match(vip.description, /priority seating/);
   assert.match(standard.description, /Pre-Worship and seating at 5 PM/);
-  assert.doesNotMatch(standard.description, /2:30 PM|priority seating|Expo/);
+  assert.match(standard.description, /2:30 PM.*Kingdom Market Expo/);
+  assert.match(standard.description, /KV Trailblazer Awards/);
+  assert.doesNotMatch(standard.description, /priority seating/);
+  assert.match(standard.description, /No T-shirt or premium seating included/);
   assert.match(event.layout.find(block => block.id === 'kv-tickets').body, /Kingdom VIP/);
 });
 
