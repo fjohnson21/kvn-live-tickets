@@ -42,6 +42,6 @@ test('both tiers ignore retired partner tracking while payment and fulfillment r
  const dashboard=await (await fetch(base+'/api/dashboard',{headers:{cookie}})).json();const orders=dashboard.orders.filter(o=>o.buyerEmail===customer.email);assert.equal(orders.length,2);assert.ok(orders.every(o=>o.bundleFulfillment.complete));
  const report=await (await fetch(base+`/api/events/${event.id}/attendees.csv`,{headers:{cookie}})).text();assert.doesNotMatch(report,/Partner Code|CHANEL/);assert.match(report,/TEST123/);
  const referralReport=await fetch(base+'/api/partner-orders.csv?partner=CHANEL',{headers:{cookie}});assert.equal(referralReport.status,404);
- const emails=fs.readFileSync(path.join(dir,'emails.jsonl'),'utf8').trim().split('\n').map(JSON.parse);assert.equal(emails.length,4);assert.ok(emails.filter(m=>m.subject.includes('Paid bundle')).every(m=>!m.text.includes('CHANEL')&&m.text.includes('Size M')&&m.text.includes('will-call pickup')));
+ const emails=fs.readFileSync(path.join(dir,'emails.jsonl'),'utf8').trim().split('\n').map(JSON.parse);assert.equal(emails.length,4);assert.ok(emails.filter(m=>m.subject.includes('Paid bundle')).every(m=>!m.text.includes('CHANEL')&&m.text.includes('Size M')&&m.text.includes('Ship to:')));
  const bad=await post('/api/create-checkout-session',{eventId:event.id,partnerCode:'INVALID'});assert.equal(bad.status,400);
 });

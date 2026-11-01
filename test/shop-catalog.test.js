@@ -10,7 +10,7 @@ test('publishes approved Drop 001 prices and sizes', () => {
   ]);
   assert.equal(catalog.shippingAmount, 0);
   assert.equal(catalog.totalInventory, 250);
-  assert.equal(catalog.fulfillmentMethod, 'will_call');
+  assert.equal(catalog.fulfillmentMethod, 'shipping');
 });
 
 test('normalization preserves existing production records', () => {

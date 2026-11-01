@@ -27,7 +27,7 @@ test('synchronizes the KVN Live event to the approved two-pass catalog', () => {
     ['kv-all-access-2026', 'Kingdom VIP Pass Bundle', 4900, 100],
     ['kv-general-admission-2026', 'General Admission', 1500, 100]
   ]);
-  assert.match(event.products[0].description, /ROWS 1–18/);
+  assert.match(event.products[0].description, /ROWS 1–10/);
   assert.match(event.products[1].description, /Full-day admission/);
   assert.ok(event.products.every(product => product.type === 'ticket'));
   assert.equal(event.products[0].includedApparel.mode,'included');assert.equal(event.products[1].includedApparel.mode,'none');

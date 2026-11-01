@@ -11,7 +11,7 @@ function offerEvent() {
 
 test('positions the current event offer as a pass bundle including Drop 001', () => {
   const event = offerEvent();
-  const phrase = 'Your Kingdom VIP pass includes one free T-shirt, available early at will call for pickup.';
+  const phrase = 'Purchase your Kingdom VIP pass or T-shirt by Sunday, November 8';
 
   assert.match(event.description, /General Admission is \$15 without apparel/i);
   assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.includedApparel.enabled && product.includedApparel.price === 0));
