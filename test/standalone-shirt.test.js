@@ -8,7 +8,7 @@ test('all current sizes cost 29.99 even for existing stored catalog; historical 
  const store=ensureShopCollections({});store.shopProducts[0].unitAmountBySize={S:3900,M:3900,L:3900,XL:3900,'2XL':4200,'3XL':4200,'4XL':4200};store.shopOrders=[{items:[{unitAmount:4200}]}];
  assert.ok(publicShopCatalog(store).products[0].variants.every(v=>v.unitAmount===2999));
  const result=normalizeShopCart(store,[{productId:id,size:'M',quantity:2},{productId:id,size:'4XL',quantity:1}]);
- assert.equal(result.totals.merchandiseSubtotal,8997);assert.equal(result.totals.shippingAmount,500);assert.equal(store.shopOrders[0].items[0].unitAmount,4200);
+ assert.equal(result.totals.merchandiseSubtotal,8997);assert.equal(result.totals.shippingAmount,0);assert.equal(store.shopOrders[0].items[0].unitAmount,4200);
 });
 test('catalog excludes active holds, retains expired stock and checkout aggregates repeated sizes',()=>{
  const store=ensureShopCollections({});store.shopProducts[0].sizeInventory.M=3;

@@ -8,9 +8,9 @@ test('publishes approved Drop 001 prices and sizes', () => {
   assert.deepEqual(catalog.products[0].variants.map(variant => [variant.size, variant.unitAmount]), [
     ['S',2999],['M',2999],['L',2999],['XL',2999],['2XL',2999],['3XL',2999],['4XL',2999]
   ]);
-  assert.equal(catalog.shippingAmount, 500);
+  assert.equal(catalog.shippingAmount, 0);
   assert.equal(catalog.totalInventory, 250);
-  assert.equal(catalog.shipsBeginning, '2026-10-15');
+  assert.equal(catalog.fulfillmentMethod, 'will_call');
 });
 
 test('normalization preserves existing production records', () => {

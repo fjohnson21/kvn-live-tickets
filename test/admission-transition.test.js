@@ -18,7 +18,7 @@ test('catalog offers $15 GA without apparel and retains retired product for pend
  assert.equal(ga.price,1500);assert.equal(ga.includedApparel.mode,'none');assert.equal(ga.earlyRelease.enabled,false);assert.equal(old.retired,true);assert.equal(old.sold,2);
  const order={buyerName:'Buyer',items:[{productId:old.id,type:'ticket',name:'Kingdom Pass Bundle',quantity:1,apparelMode:'included',ticketSelections:[{apparelSelected:true,apparelSize:'M'}]}]};
  finalizeOrderItems(order,e,{id:()=> 'ticket',ticketCode:()=> 'code'});assert.equal(order.tickets.length,1);assert.equal(order.tickets[0].includedApparel.size,'M');
- assert.equal(ticketCapacity(e,ga,[{eventId:e.id,status:'pending',checkoutExpiresAt:'2026-11-01T00:00:00Z',items:[{productId:old.id,quantity:4}]}],before()),293);
+ assert.equal(ticketCapacity(e,ga,[{eventId:e.id,status:'pending',checkoutExpiresAt:'2026-11-01T00:00:00Z',items:[{productId:old.id,quantity:4}]}],before()),95);
 });
 
 import vm from 'node:vm';

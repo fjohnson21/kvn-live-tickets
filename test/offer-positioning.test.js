@@ -11,7 +11,7 @@ function offerEvent() {
 
 test('positions the current event offer as a pass bundle including Drop 001', () => {
   const event = offerEvent();
-  const phrase = 'Your tee purchase grants you a complimentary Kingdom Vibe Live pass.';
+  const phrase = 'Your Kingdom VIP pass includes one free T-shirt, available early at will call for pickup.';
 
   assert.match(event.description, /General Admission is \$15 without apparel/i);
   assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.includedApparel.enabled && product.includedApparel.price === 0));
@@ -26,7 +26,7 @@ test('uses limited early prices before the automatic tier increase', async () =>
 
   assert.deepEqual(event.products.map(product => product.price), [4900, 1500]);
   assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.earlyRelease.enabled === true && product.earlyRelease.discountAmount === 1000));
-  assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.earlyRelease.unitLimit === 200));
+  assert.ok(event.products.filter(p=>p.id==='kv-all-access-2026').every(product => product.earlyRelease.unitLimit === 100));
   assert.match(source, /Purchase Pass/);
   assert.match(source, /Comp Ticket included/);
   assert.doesNotMatch(source, /Claim My Comp Pass/);
@@ -43,9 +43,9 @@ test('VIP raises exactly $10; GA stays at $15 after 200 and preserve historical 
   for (const [index, p] of event.products.slice(0,1).entries()) {
     const early = index === 0 ? 3900 : 2900;
     assert.equal(allocateEarlyRelease(p, 1).subtotal, early);
-    assert.equal(allocateEarlyRelease({...p,sold:199}, 2).subtotal, early + early + 1000);
-    assert.equal(allocateEarlyRelease({...p,sold:200}, 1).subtotal, early + 1000);
-    assert.equal(allocateEarlyRelease({...p,sold:199}, 1, 1).subtotal, early + 1000);
+    assert.equal(allocateEarlyRelease({...p,sold:99}, 2).subtotal, early + early + 1000);
+    assert.equal(allocateEarlyRelease({...p,sold:100}, 1).subtotal, early + 1000);
+    assert.equal(allocateEarlyRelease({...p,sold:99}, 1, 1).subtotal, early + 1000);
   }
   const orders = [{id:'existing',amountTotal:1234,status:'paid',tickets:[{code:'KEEP'}]}];
   const store = {events:[event],orders}; const before = JSON.stringify(orders);

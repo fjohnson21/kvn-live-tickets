@@ -24,17 +24,17 @@ test('synchronizes the KVN Live event to the approved two-pass catalog', () => {
 
   assert.equal(event.date, '2026-11-21T14:30:00-05:00');
   assert.deepEqual(event.products.map(product => [product.id, product.name, product.price, product.inventory]), [
-    ['kv-all-access-2026', 'Kingdom VIP Pass Bundle', 4900, 600],
-    ['kv-general-admission-2026', 'General Admission', 1500, 300]
+    ['kv-all-access-2026', 'Kingdom VIP Pass Bundle', 4900, 100],
+    ['kv-general-admission-2026', 'General Admission', 1500, 100]
   ]);
   assert.match(event.products[0].description, /ROWS 1–18/);
-  assert.match(event.products[1].description, /General admission/);
+  assert.match(event.products[1].description, /Full-day admission/);
   assert.ok(event.products.every(product => product.type === 'ticket'));
   assert.equal(event.products[0].includedApparel.mode,'included');assert.equal(event.products[1].includedApparel.mode,'none');
   assert.ok(event.products.filter(p=>p.includedApparel.mode==='included').every(product => product.includedApparel.name.includes('Not Self Made')));
   assert.ok(event.products.filter(p=>p.includedApparel.mode==='included').every(product => product.includedApparel.sizes.includes('XXXXL')));
   assert.deepEqual(event.products.map(product => product.earlyRelease), [
-    { enabled: true, discountAmount: 1000, unitLimit: 200 },
+    { enabled: true, discountAmount: 1000, unitLimit: 100 },
     { enabled: false }
   ]);
   assert.ok(event.layout.every(block => block.type !== 'apparel'));
@@ -81,7 +81,7 @@ test('publishes the approved national launch program without expanding standard 
   assert.match(vip.description, /2:30 PM.*Kingdom Market Expo/);
   assert.match(vip.description, /priority seating/);
   assert.match(standard.description, /Pre-Worship and seating at 5 PM/);
-  assert.doesNotMatch(standard.description, /2:30 PM|priority seating|Expo/);
+  assert.doesNotMatch(standard.description, /priority seating/);
   assert.match(event.layout.find(block => block.id === 'kv-tickets').body, /Kingdom VIP/);
 });
 
@@ -89,8 +89,8 @@ test('approved descriptions flow into checkout while retaining commercial and at
   const { normalizeTicketCartItem } = await import('../lib/checkout.js');
   const store = fixture();
   synchronizeKvnLive2026Event(store);
-  store.events[0].products[0].sold = 199;
-  store.events[0].products[1].sold = 201;
+  store.events[0].products[0].sold = 90;
+  store.events[0].products[1].sold = 91;
   store.orders = [{ id: 'paid-order', discipleCode: 'KEEP', status: 'paid', amountTotal: 4900 }];
   store.tickets = [{ id: 'issued-ticket', orderId: 'paid-order' }];
   store.disciples = [{ id: 'disciple', code: 'KEEP', commissionPercent: 10 }];

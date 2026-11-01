@@ -6,7 +6,7 @@ const html = fs.readFileSync(new URL('../public/success.html', import.meta.url),
 
 test('order confirmation explains ticket delivery and Drop 001 shipping', () => {
   assert.match(html, /confirmation email includes your ticket QR codes/i);
-  assert.match(html, /included Drop 001 shirt will ship on October 15, 2026/i);
-  assert.match(html, /mailing address provided at checkout/i);
+  assert.match(html, /available early at will call for pickup/i);
+  assert.match(html, /confirmation for your order/i);
   assert.doesNotMatch(html, /Production version can email these automatically/i);
 });
