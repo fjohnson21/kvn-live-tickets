@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {JSDOM} from 'jsdom';
+const html=fs.readFileSync(new URL('../public/special-guest.html',import.meta.url),'utf8'),js=fs.readFileSync(new URL('../public/special-guest.js',import.meta.url),'utf8');
+const tick=()=>new Promise(r=>setTimeout(r,10));
+test('confirmed invite renders plus-one form and working audience-copy action',async()=>{const dom=new JSDOM(html,{url:'https://kvnlive.com/special-guest#invite='+'a'.repeat(64),runScripts:'outside-only'});let copied='';dom.window.navigator.clipboard={writeText:async x=>{copied=x;}};dom.window.fetch=async()=>({ok:true,json:async()=>({name:'Host <test>',confirmed:true,closed:false,counts:{vip:1,ga:0},audienceToken:'b'.repeat(64),attendees:[],recognitionConsent:false})});dom.window.eval(js);await tick();assert.ok(dom.window.document.querySelector('#registration'));dom.window.document.querySelector('#copy').click();await tick();assert.equal(copied,'https://kvnlive.com/special-guest#guest='+'b'.repeat(64));assert.equal(dom.window.document.querySelector('h2').textContent,'Host <test>');dom.window.close();});
+test('audience registration never renders VIP or roster controls',async()=>{const dom=new JSDOM(html,{url:'https://kvnlive.com/special-guest#guest='+'a'.repeat(64),runScripts:'outside-only'});dom.window.fetch=async()=>({ok:true,json:async()=>({name:'Host',confirmed:true,closed:false,counts:{vip:2,ga:0}})});dom.window.eval(js);await tick();assert.match(dom.window.document.querySelector('#registration h2').textContent,/general-admission/);assert.equal(dom.window.document.querySelector('#share'),null);dom.window.close();});
