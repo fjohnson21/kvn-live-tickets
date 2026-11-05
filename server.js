@@ -1,3 +1,4 @@
+import {registerSpecialGuestRoutes} from './lib/special-guest-routes.js';
 import {shirtFulfillmentMethod} from './lib/shirt-fulfillment.js';
 import { enrollMinistryAmbassador } from './lib/ministry-ambassador.js';
 import {closePublicCompOffer,ticketCapacity} from './lib/admission-transition.js';
@@ -154,7 +155,7 @@ registerMemberRoutes(app,{dataDir:runtimeDataDir,readStore,baseUrl});
 const customerCheckout=createCustomerCheckout({readStore,writeStore,stripe,finalizers:{ticket:finalizeSession,donation:finalizeDonationSession,apparel:async session=>{const d=readStore();await finalizeShopSession(d,session,{id,queueConfirmation:async order=>{writeStore(d);await deliverShopConfirmation({order,apiKey:process.env.RESEND_API_KEY,from:process.env.SHOP_EMAIL_FROM||'Kingdom Vibe Shop <shop@tickets.kvnlive.com>'});persistShopEmail(order);}});}}});
 customerCheckout.register(app);
 app.use('/performance-agreement.html',(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next()});
-app.use(['/sponsored.html','/sponsored-admin.html'],(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://kvnlive.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();});
+app.use(['/sponsored.html','/sponsored-admin.html','/special-guest.html','/special-guests-admin.html'],(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://kvnlive.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();});
 app.use((req,res,next)=>{if(req.method==='GET'&&String(req.hostname).endsWith('.onrender.com')&&!commerceClientIdentity(req).startsWith('bridge:')){const url=new URL(req.originalUrl,'https://kvnlive.com'),destination=legacyPageDestination(url.pathname,url.search);if(destination)return res.redirect(302,destination);}next();});
 app.use(express.static('public'));
 const uploadDir = process.env.UPLOAD_DIR || path.resolve('public/uploads');
@@ -315,6 +316,7 @@ app.use(['/api/sponsored/info','/api/sponsored/request','/api/sponsored/confirm'
   }
   next();
 });
+registerSpecialGuestRoutes(app,{auth,owner,readStore,writeStore});
 registerSponsoredRoutes(app,{auth,owner,readStore,writeStore,baseUrl,claimPageUrl:'https://kvnlive.com/promo',launchPolicy:{launchAt:'2026-10-12T18:10:00Z',testTokenHash:'e4a968a617e4075593410bc93871c0c0fca8ca3472d1451f1418a45500b639bc'},retryUpgrade:accessToken=>recoverSponsoredCheckout({readStore,writeStore,stripe,finalizeSession},accessToken)});
 registerPerformanceAgreementRoutes(app,{store:createAgreementStore(runtimeDataDir),auth,owner,baseUrl});
 const smsCampaignService=createSmsCampaignService({readStore,writeStore,env:process.env});
@@ -835,7 +837,7 @@ app.post('/api/events/:id/media', auth, (req,res)=>{
 app.post('/api/staff', auth, (req,res)=>{
   if(req.user.role!=='owner'&&req.user.role!=='organizer') return res.status(403).json({error:'No access.'});
   const d=readStore(); const orgId=req.user.role==='owner'?(req.body.organizationId||req.user.organizationId):req.user.organizationId;
-  const permissions=Array.isArray(req.body.permissions)?req.body.permissions.filter(x=>['checkin','attendees','orders','events','refunds'].includes(x)):['checkin'];
+  const permissions=Array.isArray(req.body.permissions)?req.body.permissions.filter(x=>['checkin','attendees','orders','events','refunds','guestlists'].includes(x)):['checkin'];
   const user={id:id('usr'),name:String(req.body.name||'Staff Member'),email:String(req.body.email||''),role:'staff',organizationId:orgId,permissions}; d.users.push(user); logAudit(d,req.user,'staff.create','user',user.id,{permissions}); writeStore(d); res.status(201).json({user:safeUser(user),permissions});
 });
 app.delete('/api/staff/:id', auth, (req,res)=>{ const d=readStore(); const u=d.users.find(x=>x.id===req.params.id&&x.role==='staff'); if(!u||!(req.user.role==='owner'||u.organizationId===req.user.organizationId)) return res.status(404).json({error:'Staff not found.'}); d.users=d.users.filter(x=>x.id!==u.id); logAudit(d,req.user,'staff.remove','user',u.id); writeStore(d); res.json({ok:true}); });
