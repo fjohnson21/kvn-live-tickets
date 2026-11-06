@@ -1,6 +1,6 @@
 # KV Live special guest outreach
 
-Offer: 2 complimentary VIP passes (invitee + one) and up to 10 complimentary GA guests. Registration requires individual name, email and phone; media recognition is optional. No promotional messaging consent is inferred. No emails or texts are automatically sent.
+Offer: 2 complimentary VIP passes (invitee + one) and complimentary GA guests without a per-host cap, while shared GA inventory remains. Registration requires individual name, email and phone; media recognition is optional. No promotional messaging consent is inferred. Tiffany’s spreadsheet is prospect follow-up only; registration and counts stay in KV Tix. No emails or texts are automatically sent.
 
 ## Release dependency
 
@@ -19,12 +19,20 @@ Engine code is in PR #88. Hosting deployment remains unverified because a Render
 
 ## Invitee and audience
 
-The invitee uses the private link to confirm and issue their VIP pass, then adds their VIP plus-one. They receive a separate audience link permitting only GA registration, capped at 10. Each person gets an individual QR pass link to save or print. These links carry access secrets; share each attendee only their own pass. Keep the invitation management link private.
+The invitee uses the private link to confirm and issue their VIP pass, then adds their VIP plus-one. They receive a separate audience link permitting only GA registration, limited by actual shared GA availability. Each person gets an individual QR pass link to save or print. These links carry access secrets; share each attendee only their own pass. Keep the invitation management link private.
 
-Registrations are subject to actual event capacity. Creating invitations does not reserve inventory. Successful issue decrements native inventory and creates a complimentary order compatible with existing check-in. No merchandise is added. Confirmed records cannot be switched to declined via outreach status. For attendee corrections/reissues, use existing ticket operations with the appropriate permission; this first version does not provide self-service cancellations.
+Registrations are subject to actual event capacity. Creating invitations does not reserve inventory. Successful issue decrements native inventory and creates a complimentary order compatible with existing check-in. Each of the two complimentary VIP guests may request one T-shirt, up to two total, recorded for event pickup in native fulfillment. Complimentary GA has no merchandise. Confirmed records cannot be switched to declined via outreach status. For attendee corrections/reissues, use existing ticket operations with the appropriate permission; this first version does not provide self-service cancellations.
 
 ## Verification
 
 Automated tests cover hard limits, duplicate submission handling, email duplicate prevention, inventory failure, privacy, scoped rep access/revocation, and concurrent claims for the last GA slot. All tests use in-memory data, no production messages or test tickets.
 
 Before release: validate the branded Site build, owner import/assignment, private rep link, invitee confirmation, plus-one, audience registration, individual QR display, and check-in in an isolated fixture. Then verify deployed route health without issuing fake production passes.
+
+## Paid upgrade
+
+The audience form offers complimentary GA and a **Continue to paid VIP upgrade** action. The GA pass page includes **Upgrade to VIP**, server-provided current upgrade pricing, required checkout information and shirt selection for the existing paid VIP bundle. Both actions use the native KV Tix checkout, existing Stripe payment finalization, existing fee rules, and existing failed-checkout recovery.
+
+A successful paid upgrade replaces the original GA QR, releases that GA inventory unit, and leaves one active VIP admission. Checked-in state carries over if payment completes after check-in. Pending/failed payment retains the original GA admission and prevents another concurrent upgrade checkout. Host attribution is stored on both orders. No real charges or production tickets were used during verification.
+
+Current verification: 539 ticketing tests passed before the final display-label adjustment, including coverage for GA beyond ten, actual shared inventory exhaustion, VIP shirt stock, replacement of GA on paid upgrade, idempotent completion, late check-in and interrupted checkout recovery. Live deployment and branded browser verification remain pending.
