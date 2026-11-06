@@ -30,10 +30,10 @@ test('Set Apart is a separate 100-ticket pool while old public claims stay close
  const opts={now:()=>Date.parse('2026-11-06T14:00:00Z')};
  assert.throws(()=>pass.beginClaim(s,input({}),opts),/closed/);
  const request=i=>({...input({},`set${i}@example.test`,String(9195550100+i)),campaign:pass.SET_APART_CAMPAIGN});
- assert.throws(()=>pass.beginClaim(s,{...request(999),quantity:2},opts));
+ assert.throws(()=>pass.beginClaim(s,{...request(999),quantity:3},opts));
  let last;
- for(let i=0;i<100;i++){const p=pass.beginClaim(s,request(i),opts);last=pass.confirmClaim(s,p.verificationToken,opts);assert.equal(s.orders.at(-1).amountTotal,0);assert.match(s.orders.at(-1).tickets[0].ticketName,/Set Apart/);}
- assert.equal(s.orders.length,100);assert.equal(s.events[0].products[0].sold,10);
+ for(let i=0;i<50;i++){const p=pass.beginClaim(s,{...request(i),quantity:2},opts);last=pass.confirmClaim(s,p.verificationToken,opts);assert.equal(s.orders.at(-1).amountTotal,0);assert.match(s.orders.at(-1).tickets[0].ticketName,/Set Apart/);}
+ assert.equal(s.orders.length,50);assert.equal(s.events[0].products[0].sold,10);
  assert.throws(()=>pass.beginClaim(s,request(101),opts),/available/);
  assert.equal(pass.invitationInfo(s,null,null,pass.SET_APART_CAMPAIGN).available,false);
  assert.equal(pass.sponsoredReport(s).publicClaimed,0);
@@ -45,4 +45,21 @@ test('Set Apart cap is rechecked at verification and expires at event start',()=
  assert.throws(()=>pass.confirmClaim(s,a.verificationToken,opts),/available/);
  assert.equal(s.orders.length,0);
  assert.throws(()=>pass.beginClaim(fixture(),{...input({}),campaign:pass.SET_APART_CAMPAIGN},{now:()=>Date.parse('2026-11-22')}),/available/);
+});
+
+test('verified promo consent feeds email and SMS audiences once; unchecked stays unsubscribed',()=>{
+ const opts={now:()=>Date.parse('2026-11-06T14:00:00Z')};
+ for(const consent of [true,false]){const s=fixture(),p=pass.beginClaim(s,{...input({}),campaign:pass.SET_APART_CAMPAIGN,quantity:2,marketingConsent:consent},opts);
+ assert.equal(s.sms,undefined);assert.equal(s.marketing,undefined);
+ const c=pass.confirmClaim(s,p.verificationToken,opts);pass.confirmClaim(s,p.verificationToken,opts);
+ assert.equal(s.orders[0].tickets.length,2);assert.equal(c.communicationConsent.email,consent);
+ assert.equal(s.sms?.consentEvents.length||0,consent?1:0);assert.equal(s.marketing?.contacts[0]?.permission,consent?'subscribed':undefined);
+ if(consent){assert.equal(s.sms.consentEvents[0].phone,'+19195550100');assert.equal(s.sms.consentEvents[0].evidence,pass.PROMO_CONSENT_TEXT);}
+ }
+});
+test('two-ticket pending claim cannot consume the final single ticket',()=>{
+ const s=fixture(),opts={now:()=>Date.parse('2026-11-06T14:00:00Z')},p=pass.beginClaim(s,{...input({}),campaign:pass.SET_APART_CAMPAIGN,quantity:2},opts);
+ s.sponsoredClaims.push({campaign:pass.SET_APART_CAMPAIGN,claimedAt:'2026-11-06',quantity:99,email:'other',phone:'other'});
+ assert.equal(pass.invitationInfo(s,null,null,pass.SET_APART_CAMPAIGN).maxPasses,1);
+ assert.throws(()=>pass.confirmClaim(s,p.verificationToken,opts),/available/);assert.equal(s.orders.length,0);
 });
