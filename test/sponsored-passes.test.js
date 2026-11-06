@@ -25,3 +25,24 @@ test('public verification cannot exceed 500 or consume privately reserved passes
 test('public info has no mutation and public referral rejects invalid codes',()=>{const s=fixture();assert.equal(pass.invitationInfo(s).maxPasses,2);assert.equal(s.sponsoredInvitations.length,0);assert.throws(()=>pass.beginClaim(s,{...input({}),discipleCode:'BAD'}),/Disciple/);});
 test('500 public admissions exhaust the pool and repeated confirmation is idempotent',()=>{const s=fixture();for(let i=0;i<250;i++){const p=pass.beginClaim(s,{...input({},'guest'+i+'@example.test',String(9195550000+i)),quantity:2});pass.confirmClaim(s,p.verificationToken);pass.confirmClaim(s,p.verificationToken);}assert.equal(pass.sponsoredReport(s).claimed,500);assert.equal(pass.invitationInfo(s).available,false);assert.throws(()=>pass.beginClaim(s,input({},'extra@example.test','9195560000')),/available/);assert.equal(s.orders.length,250);});
 test('live test gate admits one verified claim and opens public claiming at launch',()=>{const s=fixture(),deps={now:()=>Date.parse('2026-10-12T17:00:00Z'),launchAt:'2026-10-12T20:00:00Z',testTokenHash:pass.hashTestToken('private-test')};assert.throws(()=>pass.beginClaim(s,input({}),deps),/4 PM/);const a=pass.beginClaim(s,{...input({}),testToken:'private-test'},deps);const b=pass.beginClaim(s,{...input({},'other@example.test','9195550101'),testToken:'private-test'},deps);pass.confirmClaim(s,a.verificationToken,deps);assert.throws(()=>pass.confirmClaim(s,b.verificationToken,deps),/test.*completed/i);assert.throws(()=>pass.beginClaim(s,{...input({},'third@example.test','9195550102'),testToken:'private-test'},deps),/test.*completed/i);assert.equal(s.orders.length,1);const live={...deps,now:()=>Date.parse('2026-10-12T20:00:00Z')};assert.doesNotThrow(()=>pass.beginClaim(s,input({},'public@example.test','9195550103'),live));});
+test('Set Apart is a separate 100-ticket pool while old public claims stay closed',()=>{
+ const s=fixture();s.sponsoredOfferClosure={closedAt:'2026-10-21'};
+ const opts={now:()=>Date.parse('2026-11-06T14:00:00Z')};
+ assert.throws(()=>pass.beginClaim(s,input({}),opts),/closed/);
+ const request=i=>({...input({},`set${i}@example.test`,String(9195550100+i)),campaign:pass.SET_APART_CAMPAIGN});
+ assert.throws(()=>pass.beginClaim(s,{...request(999),quantity:2},opts));
+ let last;
+ for(let i=0;i<100;i++){const p=pass.beginClaim(s,request(i),opts);last=pass.confirmClaim(s,p.verificationToken,opts);assert.equal(s.orders.at(-1).amountTotal,0);assert.match(s.orders.at(-1).tickets[0].ticketName,/Set Apart/);}
+ assert.equal(s.orders.length,100);assert.equal(s.events[0].products[0].sold,10);
+ assert.throws(()=>pass.beginClaim(s,request(101),opts),/available/);
+ assert.equal(pass.invitationInfo(s,null,null,pass.SET_APART_CAMPAIGN).available,false);
+ assert.equal(pass.sponsoredReport(s).publicClaimed,0);
+});
+test('Set Apart cap is rechecked at verification and expires at event start',()=>{
+ const s=fixture(),opts={now:()=>Date.parse('2026-11-06T14:00:00Z')};s.sponsoredOfferClosure={};
+ const a=pass.beginClaim(s,{...input({}),campaign:pass.SET_APART_CAMPAIGN},opts);
+ s.sponsoredClaims.push(...Array.from({length:100},(_,i)=>({campaign:pass.SET_APART_CAMPAIGN,claimedAt:'2026-11-06',quantity:1,email:`other${i}`,phone:`other${i}`})));
+ assert.throws(()=>pass.confirmClaim(s,a.verificationToken,opts),/available/);
+ assert.equal(s.orders.length,0);
+ assert.throws(()=>pass.beginClaim(fixture(),{...input({}),campaign:pass.SET_APART_CAMPAIGN},{now:()=>Date.parse('2026-11-22')}),/available/);
+});
