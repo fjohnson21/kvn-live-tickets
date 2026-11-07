@@ -1,3 +1,4 @@
+import {registerLuxrideBridge,forwardLuxrideEvent} from './lib/luxride-bridge.js';
 import {shirtFulfillmentMethod} from './lib/shirt-fulfillment.js';
 import { enrollMinistryAmbassador } from './lib/ministry-ambassador.js';
 import {closePublicCompOffer,ticketCapacity} from './lib/admission-transition.js';
@@ -127,11 +128,13 @@ const marketingEngagement = createEngagementStore({dataDir:runtimeDataDir});
 registerEngagementWebhook(app,{store:marketingEngagement});
 
 // Stripe webhook must receive the raw request body before JSON parsing.
+registerLuxrideBridge(app,{express,stripe});
 app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)=>{
   try {
     if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).send('Webhook not configured');
     const sig=req.headers['stripe-signature'];
     const event=stripe.webhooks.constructEvent(req.body,sig,process.env.STRIPE_WEBHOOK_SECRET);
+    if(await forwardLuxrideEvent(event))return res.json({received:true});
     if(event.type==='checkout.session.completed' && event.data.object.payment_status==='paid'){
       if(event.data.object.metadata?.order_type==='donation'){
         await finalizeDonationSession(event.data.object);
