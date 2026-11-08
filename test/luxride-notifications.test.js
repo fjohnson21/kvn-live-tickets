@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createLuxrideNotifications,content,validateNotification} from '../lib/luxride-notifications.js';
+import {createLuxrideNotifications,content,validateNotification,smsContent} from '../lib/luxride-notifications.js';
 const id='455a5e9c-6d4e-4826-9ffe-489bbc4926f6';
 const booking={id,sessionId:'cs_live_test',amount:100,pilot:true,name:'Test <Rider>',email:'rider@example.com',phone:'+14045550123',passengers:2,luggage:'2 suitcases',journey:{airport:'ATL',legs:[{direction:'to',date:'2026-11-09',time:'08:00',address:'123 Test St'},{direction:'from',date:'2026-11-11',time:'13:00',address:'123 Test St'}]},smsConsent:true,smsDisclosureVersion:'luxride-transactional-1',smsConsentedAt:'2026-11-08T00:00:00Z'};
 const session={metadata:{product:'luxride',luxride_order:id,pilot:'true'},payment_status:'paid',currency:'usd',amount_total:100,customer_email:booking.email};
@@ -12,3 +12,13 @@ test('unknown SMS outcome is not blindly retried',async()=>{const t=setup({smsEr
 test('email retries retain provider idempotency key',async()=>{const t=setup({fetchError:true});await t.service.send(booking);await t.service.send(booking);const emails=t.calls.filter(x=>x.email);assert.equal(emails.length,4);assert.equal(emails[0].headers['Idempotency-Key'],emails[2].headers['Idempotency-Key']);});
 test('changed payload cannot resend against existing booking',async()=>{const t=setup();await t.service.send(booking);await assert.rejects(()=>t.service.send({...booking,email:'other@example.com'}));assert.equal(t.calls.length,3);});
 test('prepayment check never claims payment or calendar reservation',async()=>{const p={...booking,amount:0,notificationTest:true};const c=content(p);assert.match(c.subject,/no payment taken/);assert.match(c.text,/no calendar holds, charge, or ride booking/);assert.doesNotMatch(c.text,/payment was verified|Paid: \$/);const t=setup();await t.service.send(p);assert.match(t.calls.find(x=>x.sms).sms.body,/No charge or ride booked/);});
+
+test('all LuxRide texts fit one GSM message including round trips and long account URLs',()=>{
+ const variants=[booking,{...booking,pilot:false},{...booking,notificationTest:true},{...booking,cancellation:{refund:100,credit:0}},...['on_way','arrived','complete','reminder_24h','reminder_2h','five_minutes'].map(state=>({...booking,accountUrl:'https://luxride-airport-transit.fjohnson.chatgpt.site/account',tripUpdate:{state,leg:0,eta:Date.parse('2026-11-09T15:59:00Z')}}))];
+ for(const p of variants){const body=smsContent(p);assert.ok(body.length<=160,body);assert.match(body,/LuxRide Airport Transit/);assert.match(body,/STOP/);assert.match(body,/HELP/);assert.ok([...body].every(c=>c.charCodeAt(0)>=32&&c.charCodeAt(0)<=126));}
+});
+test('four passengers are accepted and provider rejection codes are retained',async()=>{
+ assert.doesNotThrow(()=>validateNotification({...booking,passengers:4},session));
+ const t=setup({smsError:Object.assign(Error('rejected'),{outcome:'rejected',providerCode:1007})});
+ const r=await t.service.send(booking);assert.equal(r.riderSms.status,'failed');assert.equal(r.riderSms.providerCode,1007);
+});
