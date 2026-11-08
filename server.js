@@ -1,3 +1,4 @@
+import {createLuxrideNotifications} from './lib/luxride-notifications.js';
 import {registerLuxrideBridge,forwardLuxrideEvent} from './lib/luxride-bridge.js';
 import {shirtFulfillmentMethod} from './lib/shirt-fulfillment.js';
 import { enrollMinistryAmbassador } from './lib/ministry-ambassador.js';
@@ -128,7 +129,8 @@ const marketingEngagement = createEngagementStore({dataDir:runtimeDataDir});
 registerEngagementWebhook(app,{store:marketingEngagement});
 
 // Stripe webhook must receive the raw request body before JSON parsing.
-registerLuxrideBridge(app,{express,stripe});
+const luxrideNotifications=createLuxrideNotifications({readStore,writeStore,txtClient:smsTxt180Client,twilioClient:smsTwilioClient});
+registerLuxrideBridge(app,{express,stripe,notifications:luxrideNotifications});
 app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)=>{
   try {
     if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).send('Webhook not configured');
