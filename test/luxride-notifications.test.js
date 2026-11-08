@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createLuxrideNotifications,content,validateNotification,smsContent} from '../lib/luxride-notifications.js';
+import {createLuxrideNotifications,content,validateNotification,smsContent,tripUrl} from '../lib/luxride-notifications.js';
 const id='455a5e9c-6d4e-4826-9ffe-489bbc4926f6';
 const booking={id,sessionId:'cs_live_test',amount:100,pilot:true,name:'Test <Rider>',email:'rider@example.com',phone:'+14045550123',passengers:2,luggage:'2 suitcases',journey:{airport:'ATL',legs:[{direction:'to',date:'2026-11-09',time:'08:00',address:'123 Test St'},{direction:'from',date:'2026-11-11',time:'13:00',address:'123 Test St'}]},smsConsent:true,smsDisclosureVersion:'luxride-transactional-1',smsConsentedAt:'2026-11-08T00:00:00Z'};
 const session={metadata:{product:'luxride',luxride_order:id,pilot:'true'},payment_status:'paid',currency:'usd',amount_total:100,customer_email:booking.email};
@@ -21,4 +21,11 @@ test('four passengers are accepted and provider rejection codes are retained',as
  assert.doesNotThrow(()=>validateNotification({...booking,passengers:4},session));
  const t=setup({smsError:Object.assign(Error('rejected'),{outcome:'rejected',providerCode:1007})});
  const r=await t.service.send(booking);assert.equal(r.riderSms.status,'failed');assert.equal(r.riderSms.providerCode,1007);
+});
+
+test('confirmation status links fit SMS and appear as email links',()=>{
+ const env={LUXRIDE_CALLBACK_ORIGIN:'https://luxride-airport-transit.fjohnson.chatgpt.site',LUXRIDE_BRIDGE_SECRET:'test-secret-only'};
+ const url=tripUrl(booking,env);assert.match(url,/\/t#[A-Za-z0-9_-]{22}$/);
+ for(const pilot of [true,false]){const p={...booking,pilot,tripUrl:url},sms=smsContent(p);assert.ok(sms.includes(url));assert.ok(sms.length<=160);assert.ok(content(p).html.includes('href="'+url+'"'));}
+ assert.equal(tripUrl({...booking,id:booking.id+'-0-on_way'},env),url);
 });
