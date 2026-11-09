@@ -43,7 +43,7 @@ let count=0;Sessions.prototype.create=async function(config){const id='cs_aff_'+
 const originalFetch=globalThis.fetch;globalThis.fetch=async(url,options)=>{if(String(url)==='https://api.resend.com/emails'){fs.appendFileSync(${JSON.stringify(path.join(dir,'emails.jsonl'))},JSON.stringify(JSON.parse(options.body))+'\\n');return {ok:true,json:async()=>({id:'email_aff_test'})};}return originalFetch(url,options);};`);
 
   const port=41000+Math.floor(Math.random()*1000),base=`http://127.0.0.1:${port}`;
-  const child=spawn(process.execPath,['--import',preload,'server.js'],{
+  const child=spawn(process.execPath, ['--import',new URL('../test-support/offline-kap.mjs',import.meta.url).href,'--import',preload,'server.js'],{
     cwd:root,
     env:{...process.env,PORT:String(port),BASE_URL:base,AFFILIATE_PUBLIC_BASE_URL:'https://kvnlive.com/affiliate',DATA_DIR:dir,OWNER_EMAIL:'owner@example.com',RESEND_API_KEY:'test_only',STRIPE_SECRET_KEY:'sk_test_local_only',STRIPE_WEBHOOK_SECRET:'whsec_test_only'},
     stdio:['ignore','pipe','pipe']

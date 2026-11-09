@@ -32,7 +32,7 @@ export async function fixture({engagementReports=false,checkin=false,surveyLeads
  }
  fs.writeFileSync(path.join(dir,'store.json'),JSON.stringify(store));createOwnerPasswordStore({dataDir:dir,bootstrapPassword:'synthetic mobile password'});
  // Deliberately do not inherit provider keys, sync configuration or dotenv files.
- const child=spawn(process.execPath,[path.resolve('server.js')],{cwd:dir,env:{PATH:process.env.PATH,DATA_DIR:dir,UPLOAD_DIR:path.join(dir,'uploads'),PORT:String(port),BASE_URL:base,OWNER_EMAIL:'owner@example.test'},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath, ['--import',new URL('../test-support/offline-kap.mjs',import.meta.url).href,path.resolve('server.js')],{cwd:dir,env:{PATH:process.env.PATH,DATA_DIR:dir,UPLOAD_DIR:path.join(dir,'uploads'),PORT:String(port),BASE_URL:base,OWNER_EMAIL:'owner@example.test'},stdio:['ignore','pipe','pipe']});
  let errors='';child.stderr.on('data',d=>errors+=d);
  try{await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Server startup timed out: '+errors)),10000);child.stdout.on('data',d=>{if(String(d).includes('running at')){clearTimeout(timer);resolve()}});child.once('exit',()=>{clearTimeout(timer);reject(Error(errors))})})}catch(e){child.kill();fs.rmSync(dir,{recursive:true,force:true});throw e}
  // WebKit does not send the production Secure cookie over plain HTTP localhost.

@@ -38,7 +38,7 @@ async function startServer(extraEnv = {}) {
   fs.copyFileSync(new URL('../data/store.json', import.meta.url), path.join(dataDir, 'store.json'));
   createOwnerPasswordStore({ dataDir, bootstrapPassword: 'correct horse battery staple' });
   const port = 32000 + Math.floor(Math.random() * 2000);
-  const child = spawn(process.execPath, ['server.js'], {
+  const child = spawn(process.execPath, ['--import',new URL('../test-support/offline-kap.mjs',import.meta.url).href,'server.js'], {
     cwd: projectRoot,
     env: {
       ...process.env,

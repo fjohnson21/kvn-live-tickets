@@ -15,7 +15,7 @@ test('owner size correction preserves paid prices and financial reporting', asyn
   fs.writeFileSync(path.join(dir,'store.json'),JSON.stringify(seed));
   createOwnerPasswordStore({dataDir:dir,bootstrapPassword:'test-only-password-123'});
   const port=43000+Math.floor(Math.random()*1000),base=`http://127.0.0.1:${port}`;
-  const child=spawn(process.execPath,['server.js'],{cwd:new URL('../',import.meta.url),env:{PATH:process.env.PATH,HOME:dir,PORT:String(port),BASE_URL:base,DATA_DIR:dir,UPLOAD_DIR:path.join(dir,'uploads'),OWNER_EMAIL:'owner@example.test'},stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath, ['--import',new URL('../test-support/offline-kap.mjs',import.meta.url).href,'server.js'],{cwd:new URL('../',import.meta.url),env:{PATH:process.env.PATH,HOME:dir,PORT:String(port),BASE_URL:base,DATA_DIR:dir,UPLOAD_DIR:path.join(dir,'uploads'),OWNER_EMAIL:'owner@example.test'},stdio:['ignore','pipe','pipe']});
   t.after(()=>{child.kill();fs.rmSync(dir,{recursive:true,force:true});});
   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('startup timeout')),5000);child.stdout.on('data',c=>{if(String(c).includes('running at')){clearTimeout(timer);resolve();}});child.on('exit',()=>{clearTimeout(timer);reject(Error('server exited'));});});
   const login=await fetch(base+'/api/auth/owner',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'owner@example.test',password:'test-only-password-123'})});

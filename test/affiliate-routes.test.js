@@ -11,7 +11,7 @@ async function startServer(){
   fs.copyFileSync(new URL('../data/store.json',import.meta.url),path.join(dataDir,'store.json'));
   const storePath=path.join(dataDir,'store.json');const store=JSON.parse(fs.readFileSync(storePath));store.disciples=[{id:'a',handle:'example',handleAliases:['previous'],code:'EXAMPLECODE',status:'active',email:'private@example.com'},{id:'b',handle:'inactive',code:'INACTIVE',status:'inactive'}];fs.writeFileSync(storePath,JSON.stringify(store));
   const port=34000+Math.floor(Math.random()*1000);
-  const child=spawn(process.execPath,['server.js'],{cwd:projectRoot,env:{...process.env,PORT:String(port),BASE_URL:`http://127.0.0.1:${port}`,DATA_DIR:dataDir,STRIPE_SECRET_KEY:''},stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath, ['--import',new URL('../test-support/offline-kap.mjs',import.meta.url).href,'server.js'],{cwd:projectRoot,env:{...process.env,PORT:String(port),BASE_URL:`http://127.0.0.1:${port}`,DATA_DIR:dataDir,STRIPE_SECRET_KEY:''},stdio:['ignore','pipe','pipe']});
   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('server start timed out')),5000);child.stdout.on('data',chunk=>{if(String(chunk).includes('running at')){clearTimeout(timer);resolve();}});child.once('exit',code=>reject(new Error(`server exited ${code}`)));});
   return {baseUrl:`http://127.0.0.1:${port}`,stop(){child.kill('SIGTERM');fs.rmSync(dataDir,{recursive:true,force:true});}};
 }
