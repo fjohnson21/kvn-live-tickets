@@ -1,3 +1,4 @@
+import {kapLogin,kapUser} from './lib/kap-staff.mjs';
 import {createLuxrideNotifications} from './lib/luxride-notifications.js';
 import {registerLuxrideBridge,forwardLuxrideEvent} from './lib/luxride-bridge.js';
 import {shirtFulfillmentMethod} from './lib/shirt-fulfillment.js';
@@ -284,7 +285,7 @@ function sameSecret(left,right){ const a=crypto.createHash('sha256').update(Stri
 function clientAddress(req){ const signed=commerceClientIdentity(req); return signed.startsWith('bridge:')?signed:String(req.headers['x-forwarded-for']||'').split(',')[0].trim()||req.socket.remoteAddress||''; }
 function sessionCookie(token,maxAge=Math.floor(sessionTtlMs/1000)){ return `${sessionCookieName}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`; }
 function pruneSessions(){ const now=Date.now(); for(const [token,session] of sessions)if(session.expiresAt<=now)sessions.delete(token); while(sessions.size>1000)sessions.delete(sessions.keys().next().value); }
-function auth(req,res,next){ res.set('Cache-Control','no-store'); const token=cookieValue(req,sessionCookieName),session=sessions.get(token); if(!session||session.expiresAt<=Date.now()){if(token)sessions.delete(token);return res.status(401).json({error:'Sign in required.'});} const user=readStore().users.find(u=>u.id===session.userId); if(!user) return res.status(401).json({error:'Sign in required.'}); req.user=user; req.sessionToken=token; next(); }
+async function auth(req,res,next){ res.set('Cache-Control','no-store'); const token=cookieValue(req,sessionCookieName),session=sessions.get(token); if(!session||session.expiresAt<=Date.now()){if(token)sessions.delete(token);return res.status(401).json({error:'Sign in required.'});} if(session.kapToken&&!await kapUser(session.kapToken)){sessions.delete(token);return res.status(401).json({error:'KAP session expired. Sign in again.'});} const user=readStore().users.find(u=>u.id===session.userId); if(!user) return res.status(401).json({error:'Sign in required.'}); req.user=user; req.sessionToken=token; next(); }
 function owner(req,res,next){ if(req.user?.role!=='owner') return res.status(403).json({error:'Owner access required.'}); next(); }
 // Owner-only, read-only access to the same scoped model used by member sessions.
 app.get('/api/disciples/member-preview',auth,owner,(req,res)=>{
@@ -389,21 +390,24 @@ app.get('/api/early-pricing', (req,res)=>{
 app.get('/api/platform', (req,res)=>{ const d=readStore(); res.json({settings:d.settings, organizations:d.organizations.filter(o=>o.status==='approved').map(o=>({id:o.id,name:o.name,slug:o.slug})), events:d.events.filter(e=>e.status==='published').map(e=>publicEvent(e,d.orders))}); });
 app.get('/api/events/:slug', (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.slug===req.params.slug && x.status==='published'); if(!e) return res.status(404).json({error:'Event not found.'}); const org=d.organizations.find(o=>o.id===e.organizationId); const view=publicEvent(e,d.orders);if(req.query.promotion===PROMO_VIP_OFFER&&e.slug==='kingdom-vibe-live-2026'){view.products=view.products.filter(p=>p.id==='kv-all-access-2026').map(promoVipProduct);view.promoOffer=PROMO_VIP_OFFER;}res.json({event:view,organization:org&&{id:org.id,name:org.name,slug:org.slug}}); });
 
-app.post('/api/auth/owner', (req,res)=>{
+app.post('/api/auth/owner', async (req,res)=>{
   res.set('Cache-Control','no-store');
   const configuredEmail=String(process.env.OWNER_EMAIL||'').trim().toLowerCase();
-  if(!configuredEmail||!ownerPasswords.isConfigured()) return res.status(503).json({error:'Owner sign-in is not configured.'});
+
   const email=String(req.body.email||'').trim().toLowerCase(),password=String(req.body.password||'');
   const attemptKey=`${clientAddress(req)}:${email}`,now=Date.now(); let attempts=loginAttempts.get(attemptKey);
   if(attempts&&attempts.resetAt<=now){loginAttempts.delete(attemptKey);attempts=null;}
   if(attempts?.count>=loginAttemptLimit){res.set('Retry-After',String(Math.ceil((attempts.resetAt-now)/1000)));return res.status(429).json({error:'Too many sign-in attempts. Try again later.'});}
-  if(!sameSecret(email,configuredEmail)||!ownerPasswords.verify(password)){const next=attempts||{count:0,resetAt:now+loginWindowMs};next.count+=1;loginAttempts.set(attemptKey,next);return res.status(401).json({error:'Email or password is incorrect.'});}
+  if(email.length>254||password.length>128)return res.status(400).json({error:'Invalid credentials.'});
+  let shared;try{shared=await kapLogin(email,password);}catch{shared={status:503};}
+  const legacyValid=configuredEmail&&ownerPasswords.isConfigured()&&sameSecret(email,configuredEmail)&&ownerPasswords.verify(password);
+  if(!shared.token&&!legacyValid){const next=attempts||{count:0,resetAt:now+loginWindowMs};next.count+=1;loginAttempts.set(attemptKey,next);return res.status(401).json({error:'Email or password is incorrect.'});}
   loginAttempts.delete(attemptKey);
   const user=readStore().users.find(candidate=>candidate.role==='owner');
   if(!user) return res.status(503).json({error:'Owner account is not configured.'});
   pruneSessions();
   const token=crypto.randomBytes(32).toString('hex');
-  sessions.set(token,{userId:user.id,expiresAt:Date.now()+sessionTtlMs});
+  sessions.set(token,{userId:user.id,expiresAt:Date.now()+(shared.token?8*60*60*1000:sessionTtlMs),...(shared.token?{kapToken:shared.token}:{})});
   res.setHeader('Set-Cookie',sessionCookie(token));
   res.json({user:safeUser(user)});
 });
