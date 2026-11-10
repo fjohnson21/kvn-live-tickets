@@ -63,3 +63,14 @@ test('two-ticket pending claim cannot consume the final single ticket',()=>{
  assert.equal(pass.invitationInfo(s,null,null,pass.SET_APART_CAMPAIGN).maxPasses,1);
  assert.throws(()=>pass.confirmClaim(s,p.verificationToken,opts),/available/);assert.equal(s.orders.length,0);
 });
+
+test('public Set Apart requests close without revoking existing tickets or pending verifications',()=>{
+ const s=fixture(),before={now:()=>Date.parse('2026-11-09T23:59:00Z')},after={now:()=>Date.parse('2026-11-10T00:01:00Z')};
+ const pending=pass.beginClaim(s,{...input({}),campaign:pass.SET_APART_CAMPAIGN},before);
+ assert.throws(()=>pass.beginClaim(s,{...input({},'late@example.test','9195550102'),campaign:pass.SET_APART_CAMPAIGN},after),e=>e.statusCode===410);
+ assert.equal(s.sponsoredClaims.length,1);
+ const verified=pass.confirmClaim(s,pending.verificationToken,after);
+ assert.equal(s.orders[0].tickets[0].status,'active');
+ assert.equal(pass.confirmClaim(s,pending.verificationToken,after).id,verified.id);
+ assert.equal(s.orders.length,1);
+});
