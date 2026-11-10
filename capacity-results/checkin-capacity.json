@@ -1,0 +1,145 @@
+{
+  "date": "2026-10-30T16:12:37.978Z",
+  "commit": "92e8aa5387eb314e714e5727488582c858ff14d0",
+  "node": "v24.22.1",
+  "platform": "linux",
+  "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+  "cpuCount": 9,
+  "memoryBytes": 10451423232,
+  "sessionCount": 16,
+  "staffIdentities": 1,
+  "results": [
+    {
+      "name": "90-minute arrival rate, 60-second sample",
+      "requests": 17,
+      "seconds": 60.001,
+      "requestsPerSecond": 0.28,
+      "statuses": {
+        "200": 17
+      },
+      "p50Ms": 17.1,
+      "p95Ms": 200.12,
+      "p99Ms": 200.12,
+      "maxMs": 200.12,
+      "offeredPerMinute": 17.77777777777778,
+      "maxDispatchLagMs": 249.81
+    },
+    {
+      "name": "60-minute arrival rate, 60-second sample",
+      "requests": 26,
+      "seconds": 60,
+      "requestsPerSecond": 0.43,
+      "statuses": {
+        "200": 26
+      },
+      "p50Ms": 17.87,
+      "p95Ms": 37.28,
+      "p99Ms": 195.15,
+      "maxMs": 195.15,
+      "offeredPerMinute": 26.666666666666664,
+      "maxDispatchLagMs": 23.22
+    },
+    {
+      "name": "240-per-minute burst, 30 seconds",
+      "requests": 120,
+      "seconds": 29.999,
+      "requestsPerSecond": 4,
+      "statuses": {
+        "200": 120
+      },
+      "p50Ms": 13.88,
+      "p95Ms": 36.37,
+      "p99Ms": 87.63,
+      "maxMs": 104.06,
+      "offeredPerMinute": 240,
+      "maxDispatchLagMs": 163.6
+    },
+    {
+      "name": "1600 admissions, 4 lanes, base store",
+      "requests": 1600,
+      "seconds": 18.93,
+      "requestsPerSecond": 84.52,
+      "statuses": {
+        "200": 1600
+      },
+      "p50Ms": 35.12,
+      "p95Ms": 88.29,
+      "p99Ms": 160.63,
+      "maxMs": 1161.06,
+      "concurrency": 4,
+      "initialStoreBytes": 291710
+    },
+    {
+      "name": "1600 admissions, 16 lanes, base store",
+      "requests": 1600,
+      "seconds": 14.237,
+      "requestsPerSecond": 112.39,
+      "statuses": {
+        "200": 1600
+      },
+      "p50Ms": 135.3,
+      "p95Ms": 221.09,
+      "p99Ms": 285.67,
+      "maxMs": 959.94,
+      "concurrency": 16,
+      "initialStoreBytes": 291710
+    },
+    {
+      "name": "1600 admissions, 4 lanes, 10 MiB padding",
+      "requests": 1600,
+      "seconds": 313.524,
+      "requestsPerSecond": 5.1,
+      "statuses": {
+        "200": 1600
+      },
+      "p50Ms": 683.96,
+      "p95Ms": 1387.86,
+      "p99Ms": 1782.74,
+      "maxMs": 2662.95,
+      "concurrency": 4,
+      "initialStoreBytes": 10777470
+    },
+    {
+      "name": "100 same-ticket races, 16 sessions each",
+      "requests": 1600,
+      "seconds": 2.446,
+      "requestsPerSecond": 654.11,
+      "statuses": {
+        "200": 100,
+        "409": 1500
+      },
+      "p50Ms": 12.38,
+      "p95Ms": 30.52,
+      "p99Ms": 66.82,
+      "maxMs": 85.94
+    }
+  ],
+  "protectionChecks": [
+    {
+      "code": "LOAD-0",
+      "status": 409
+    },
+    {
+      "code": "LOAD-1",
+      "status": 409
+    },
+    {
+      "code": "LOAD-2",
+      "status": 409
+    },
+    {
+      "code": "LOAD-3",
+      "status": 403
+    },
+    {
+      "code": "UNKNOWN",
+      "status": 404
+    },
+    {
+      "code": "LOAD-4",
+      "status": 401
+    }
+  ],
+  "permissionDenial": 403,
+  "passed": true
+}
