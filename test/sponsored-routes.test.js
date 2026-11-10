@@ -54,7 +54,7 @@ test('sponsored claim, verified email, canonical VIP upgrade and check-in are is
  assert.ok(mails().every(m=>[m.to].flat().every(to=>['guest@example.test','owner@example.test'].includes(to))));
  const normalView=await (await fetch(base+'/api/events/kingdom-vibe-live-2026')).json();
  const promoView=await (await fetch(base+'/api/events/kingdom-vibe-live-2026?promotion=kap-vip-3999')).json();
- assert.equal(promoView.event.products.length,1);assert.equal(promoView.event.products[0].price,3900);assert.equal(promoView.event.products[0].maxPerOrder,20);assert.notEqual(normalView.event.products[0].price,3900);
+ assert.equal(promoView.event.products.length,1);assert.equal(promoView.event.products[0].price,3900);assert.equal(promoView.event.products[0].maxPerOrder,20);assert.equal(normalView.event.products[0].price,3900);
  const direct={eventId:'ev',promotion:'kap-vip-3999',customer,discipleCode:'DIST',cart:[{id:'kv-all-access-2026',quantity:3,ticketSelections:Array.from({length:3},()=>({apparelSelected:true,apparelSize:'L'}))}]};
  assert.equal((await post('/api/create-checkout-session',{...direct,discountCode:'EXTRA'})).status,400);
  assert.equal((await post('/api/create-checkout-session',{...direct,cart:[{...direct.cart[0],quantity:21}]})).status,400);

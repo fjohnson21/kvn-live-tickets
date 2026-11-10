@@ -339,8 +339,13 @@ if(crmConfigured){
  process.once('exit',()=>clearInterval(crmTimer));
 }
 function canManage(user,event){ return user.role==='owner' || ((user.role==='organizer'||user.role==='staff') && event.organizationId===user.organizationId); }
-function canonicalPass(e,p){if(e.slug!=='kingdom-vibe-live-2026')return p;if(p.id==='kv-general-admission-2026')return {...p,price:0,earlyRelease:{enabled:false},claimUrl:'https://kvnlive.com/promo?campaign=set-apart#campaign=set-apart-kv-live-2026',description:'Free General Admission sponsored by Set Apart. Full-day access. Up to two tickets per email and mobile number; email verification required. No apparel.'};const name=({'kv-all-access-2026':'Kingdom VIP Pass Bundle','kv-kingdom-pass-2026':'Kingdom Pass Bundle'})[p.id];return name?{...p,name}:p;}
-function publicEvent(e,orders=[]){ return {...e, products:e.products.filter(p=>!p.retired).map(p=>{const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...canonicalPass(e,p),available:p.salesEnd&&Date.now()>=Date.parse(p.salesEnd)?0:ticketCapacity(e,p,orders),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
+function canonicalPass(e,p){
+ if(e.slug!=='kingdom-vibe-live-2026')return p;
+ if(p.id==='kv-general-admission-2026')return {...p,name:'General Admission',price:1500,earlyRelease:{enabled:false},description:'Full-day admission from 2:30 PM: Kingdom Market Expo, Vendor Mall, Food Hall Experience and Technology Release. 4 PM Trailblazer Awards, 5 PM pre-worship and general seating, and 6 PM worship. No T-shirt or VIP seating included.'};
+ if(p.id==='kv-all-access-2026')return {...p,name:'Kingdom Pass',price:3900,earlyRelease:{enabled:false}};
+ return p;
+}
+function publicEvent(e,orders=[]){ return {...e, products:e.products.filter(p=>!p.retired).map(source=>{const p=canonicalPass(e,source);const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...canonicalPass(e,p),available:p.salesEnd&&Date.now()>=Date.parse(p.salesEnd)?0:ticketCapacity(e,p,orders),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
 function discipleRate(disciple,eventId){
   const override=(disciple.eventRates||[]).find(x=>x.eventId===eventId);
   return Math.max(0,Math.min(100,Number(override?.percent ?? disciple.defaultCommissionPercent ?? readStore().settings.defaultDiscipleCommissionPercent ?? 0)));
@@ -669,10 +674,10 @@ app.post('/api/create-checkout-session', customerCheckout.middleware('ticket'), 
     if(req.body.sponsoredClaimToken){try{sponsoredClaim=validateUpgrade(d,req.body);}catch(error){return res.status(error.statusCode||400).json({error:error.message});}}
     if(req.body.promotion){try{validatePromoVipRequest(e,req.body);}catch(error){return res.status(error.statusCode||400).json({error:error.message});}}
     const customer=normalizeCustomer(req.body.customer),customerErrors=validateCustomer(customer);if(customerErrors.length)return res.status(400).json({error:customerErrors[0]});
-    const cart=Array.isArray(req.body.cart)?req.body.cart:[]; if(e.slug==='kingdom-vibe-live-2026'&&cart.some(item=>item.id==='kv-general-admission-2026'))return res.status(409).json({error:'General Admission is free, sponsored by Set Apart. Please claim up to two tickets through the free-ticket form.',claimUrl:'https://kvnlive.com/promo?campaign=set-apart#campaign=set-apart-kv-live-2026'}); if(!cart.length) return res.status(400).json({error:'Your cart is empty.'});
+    const cart=Array.isArray(req.body.cart)?req.body.cart:[]; if(!cart.length) return res.status(400).json({error:'Your cart is empty.'});
     let subtotal=0, groupDiscountAmount=0, earlyReleaseDiscountAmount=0; const normalized=[]; const lineItems=[];
     for(const item of cart){
-      const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct||sourceProduct.retired)return res.status(409).json({error:'This pass is no longer on sale. Please claim free General Admission or choose an available VIP pass.'}); const canonical=canonicalPass(e,sourceProduct),p=(req.body.promotion===PROMO_VIP_OFFER||sponsoredClaim)&&canonical.id==='kv-all-access-2026'?promoVipProduct(canonical):canonical; if(p.salesEnd&&Date.now()>=Date.parse(p.salesEnd))return res.status(400).json({error:'The Community Pass release has ended. Please choose an available bundle.'});
+      const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct||sourceProduct.retired)return res.status(409).json({error:'This pass is no longer on sale. Please choose an available paid pass.'}); const canonical=canonicalPass(e,sourceProduct),p=(req.body.promotion===PROMO_VIP_OFFER||sponsoredClaim)&&canonical.id==='kv-all-access-2026'?promoVipProduct(canonical):canonical; if(p.salesEnd&&Date.now()>=Date.parse(p.salesEnd))return res.status(400).json({error:'The Community Pass release has ended. Please choose an available bundle.'});
       if(p.type==='ticket'){
         // Reserve all pending ticket units, including sponsored upgrades, before calling Stripe.
         const pending=d.orders.filter(o=>o.eventId===e.id&&reservesTicketInventory(o)).flatMap(o=>o.items||[]).filter(i=>i.productId===p.id).reduce((n,i)=>n+Number(i.quantity||0),0);
