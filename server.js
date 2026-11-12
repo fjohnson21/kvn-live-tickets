@@ -72,7 +72,7 @@ import { createCommunityBonus,reverseCommunityBonusForCommission } from './lib/d
 import { awardLeaderBundle,inviteMemberBundle } from './lib/disciple-bundles.js';
 import { publicShopCatalog } from './lib/shop-catalog.js';
 import { reserveShopInventory } from './lib/shop-inventory.js';
-import { buildShopCheckoutSession, normalizeShopCart, normalizeSponsoredShirtCart, ShopCheckoutError } from './lib/shop-checkout.js';
+import { assertShopSalesOpen, buildShopCheckoutSession, normalizeShopCart, normalizeSponsoredShirtCart, ShopCheckoutError } from './lib/shop-checkout.js';
 import { expireShopSession, finalizeShopSession, refundShopOrder } from './lib/shop-finalize.js';
 import { deliverShopConfirmation } from './lib/shop-email.js';
 import { shopMetrics, shopOrdersCsv } from './lib/shop-report.js';
@@ -242,6 +242,7 @@ app.post('/api/shop/checkout',customerCheckout.middleware('apparel'),async(req,r
     const email=String(req.body.email||'').trim().toLowerCase();
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:'Enter a valid email address.'});
     const d=readStore(),normalized=req.body.sponsoredClaimToken?normalizeSponsoredShirtCart(d,req.body):normalizeShopCart(d,req.body.cart);
+    assertShopSalesOpen(normalized.lines);
     if(!stripe) return res.status(503).json({error:'Apparel checkout is not configured.'});
     const discipleCode=normalized.claim?'':String(req.body.discipleCode||'').trim().toUpperCase();
     const disciple=d.disciples.find(item=>item.code===discipleCode&&item.status==='active');
@@ -341,11 +342,9 @@ if(crmConfigured){
 function canManage(user,event){ return user.role==='owner' || ((user.role==='organizer'||user.role==='staff') && event.organizationId===user.organizationId); }
 function canonicalPass(e,p){
  if(e.slug!=='kingdom-vibe-live-2026')return p;
- if(p.id==='kv-general-admission-2026')return {...p,name:'General Admission',price:1500,earlyRelease:{enabled:false},description:'Full-day admission from 2:30 PM: Kingdom Market Expo, Vendor Mall, Food Hall Experience and Technology Release. 4 PM Trailblazer Awards, 5 PM pre-worship and general seating, and 6 PM worship. No T-shirt or VIP seating included.'};
- if(p.id==='kv-all-access-2026')return {...p,name:'Kingdom Pass',price:3900,earlyRelease:{enabled:false}};
  return p;
 }
-function publicEvent(e,orders=[]){ return {...e, products:e.products.filter(p=>!p.retired).map(source=>{const p=canonicalPass(e,source);const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...canonicalPass(e,p),available:p.salesEnd&&Date.now()>=Date.parse(p.salesEnd)?0:ticketCapacity(e,p,orders),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
+function publicEvent(e,orders=[]){ return {...e, products:e.products.filter(p=>!p.retired).map(source=>{const p=canonicalPass(e,source);const reserved=pendingEarlyReleaseUnits(orders,e.id,p.id);const remaining=p.earlyRelease?.enabled?Math.max(0,Number(p.earlyRelease.unitLimit||0)-Number(p.sold||0)-reserved):0;return {...canonicalPass(e,p),available:p.salesClosed?0:p.salesEnd&&Date.now()>=Date.parse(p.salesEnd)?0:ticketCapacity(e,p,orders),earlyRelease:p.earlyRelease?.enabled?{...p.earlyRelease,remaining}:p.earlyRelease};})}; }
 function discipleRate(disciple,eventId){
   const override=(disciple.eventRates||[]).find(x=>x.eventId===eventId);
   return Math.max(0,Math.min(100,Number(override?.percent ?? disciple.defaultCommissionPercent ?? readStore().settings.defaultDiscipleCommissionPercent ?? 0)));
@@ -677,7 +676,7 @@ app.post('/api/create-checkout-session', customerCheckout.middleware('ticket'), 
     const cart=Array.isArray(req.body.cart)?req.body.cart:[]; if(!cart.length) return res.status(400).json({error:'Your cart is empty.'});
     let subtotal=0, groupDiscountAmount=0, earlyReleaseDiscountAmount=0; const normalized=[]; const lineItems=[];
     for(const item of cart){
-      const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct||sourceProduct.retired)return res.status(409).json({error:'This pass is no longer on sale. Please choose an available paid pass.'}); const canonical=canonicalPass(e,sourceProduct),p=(req.body.promotion===PROMO_VIP_OFFER||sponsoredClaim)&&canonical.id==='kv-all-access-2026'?promoVipProduct(canonical):canonical; if(p.salesEnd&&Date.now()>=Date.parse(p.salesEnd))return res.status(400).json({error:'The Community Pass release has ended. Please choose an available bundle.'});
+      const sourceProduct=e.products.find(x=>x.id===item.id); if(!sourceProduct||sourceProduct.retired||sourceProduct.salesClosed)return res.status(409).json({error:'This pass is no longer on sale. Please choose an available paid pass.'}); const canonical=canonicalPass(e,sourceProduct),p=(req.body.promotion===PROMO_VIP_OFFER||sponsoredClaim)&&canonical.id==='kv-all-access-2026'?promoVipProduct(canonical):canonical; if(p.salesEnd&&Date.now()>=Date.parse(p.salesEnd))return res.status(400).json({error:'The Community Pass release has ended. Please choose an available bundle.'});
       if(p.type==='ticket'){
         // Reserve all pending ticket units, including sponsored upgrades, before calling Stripe.
         const pending=d.orders.filter(o=>o.eventId===e.id&&reservesTicketInventory(o)).flatMap(o=>o.items||[]).filter(i=>i.productId===p.id).reduce((n,i)=>n+Number(i.quantity||0),0);
