@@ -6,8 +6,8 @@ import { buildTicketConfirmation } from '../lib/email.js';
 import { EVENT_REPORT_HEADERS, eventReportRows } from '../lib/report.js';
 
 test('offer deep links select only an existing available KVN ticket tier',()=>{
- const event={slug:'kingdom-vibe-live-2026',products:[{id:'kv-all-access-2026',type:'ticket',available:5},{id:'kv-kingdom-pass-2026',type:'ticket',available:0}]};
- assert.equal(selectOfferProduct(event,'full-access')?.id,'kv-all-access-2026');assert.equal(selectOfferProduct(event,'kingdom-pass'),null);assert.equal(selectOfferProduct(event,'unknown'),null);assert.equal(selectOfferProduct({...event,slug:'other'},'full-access'),null);
+ const event={slug:'kingdom-vibe-live-2026',products:[{id:'kv-kingdom-premier-2026',type:'ticket',available:5},{id:'kv-kingdom-pass-2026',type:'ticket',available:0}]};
+ assert.equal(selectOfferProduct(event,'full-access')?.id,'kv-kingdom-premier-2026');assert.equal(selectOfferProduct(event,'kingdom-pass'),null);assert.equal(selectOfferProduct(event,'unknown'),null);assert.equal(selectOfferProduct({...event,slug:'other'},'full-access'),null);
 });
 const order=()=>({id:'test-1',bundleWorkflowVersion:1,status:'paid',partnerCode:'CHANEL',buyerEmail:'test@example.com',buyerName:'Test',tickets:[{code:'TEST',ticketName:'Full Access',apparel:{size:'L',fulfilled:false}}],items:[],customer:{mailingAddress:{line1:'1 Test St',city:'Test',state:'NC',postalCode:'00000',country:'US'}},confirmationEmail:{status:'sent'}});
 test('shipment requires paid apparel and tracking; preserves separate pass state',()=>{

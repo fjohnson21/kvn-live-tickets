@@ -67,7 +67,7 @@ const originalFetch=globalThis.fetch;globalThis.fetch=async(url,options)=>{if(St
   assert.ok(product,'Expected an available KVN ticket product');
 
   const customer={name:'Affiliate Test Buyer',email:'affiliate-buyer@example.com',cellPhone:'9195550100',billingAddress:{line1:'1 Test St',city:'Sanford',state:'NC',postalCode:'27330',country:'US'},mailingSameAsBilling:true,mailingAddress:{line1:'1 Test St',city:'Sanford',state:'NC',postalCode:'27330',country:'US'}};
-  const checkout=await fetch(base+'/api/create-checkout-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({eventId:event.id,discipleCode:affiliateIdentity.code,customer,cart:[{id:product.id,quantity:1,ticketSelections:[{apparelSelected:true,apparelSize:'M'}]}]})});
+  const checkout=await fetch(base+'/api/create-checkout-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({eventId:event.id,discipleCode:affiliateIdentity.code,customer,cart:[{id:product.id,quantity:1,ticketSelections:[{apparelSelected:false,apparelSize:null}]}]})});
   assert.equal(checkout.status,200,await checkout.clone().text());
   const stripeSession=JSON.parse(fs.readFileSync(path.join(dir,'stripe.jsonl'),'utf8').trim().split('\n').at(-1));
   assert.equal(stripeSession.config.metadata.disciple_code,'BRIANNAHCOOPER');

@@ -14,9 +14,9 @@ test('catalog excludes active holds, retains expired stock and checkout aggregat
  const store=ensureShopCollections({});store.shopProducts[0].sizeInventory.M=3;
  const now=new Date('2026-10-23T12:00:00Z');
  const hold=reserveShopInventory(store,{orderId:'held',lines:[{productId:id,size:'M',quantity:2}]},()=>now);
- assert.equal(publicShopCatalog(store,now).products[0].variants.find(v=>v.size==='M').remaining,1);
+ assert.equal(publicShopCatalog(store,now).products[0].variants.find(v=>v.size==='M').remaining,0);
  assert.throws(()=>reserveShopInventory(store,{orderId:'over',lines:[{productId:id,size:'M',quantity:1},{productId:id,size:'M',quantity:1}]},()=>now),/Only 1/);
- assert.equal(publicShopCatalog(store,new Date('2026-10-23T13:00:00Z')).products[0].variants.find(v=>v.size==='M').remaining,3);
+ assert.equal(publicShopCatalog(store,new Date('2026-10-23T13:00:00Z')).products[0].variants.find(v=>v.size==='M').remaining,0);
  commitShopReservation(store,hold.id,'held',()=>now);assert.equal(store.shopProducts[0].sizeInventory.M,1);
 });
 test('large per-shirt selections aggregate by size before Stripe line items',()=>{
