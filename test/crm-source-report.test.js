@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as sync from '../lib/crm-sync.js';
+import {parseCrmFilters} from '../lib/crm-query.js';
+test('source cards reconcile date and archive filters without claiming a local survey was remotely synced',()=>{
+ const now=new Date('2026-11-13T15:00:00Z');
+ const record=(id,sourceTable,date,extra={})=>({id,sourceTable,receivedAt:date,category:'Early Access',submittedContact:{email:id+'@example.test'},...extra});
+ const store={crmRecords:[record('old','early_access_leads','2026-09-01T12:00:00Z'),record('new','early_access_leads','2026-11-01T12:00:00Z'),record('archived','early_access_leads','2026-11-02T12:00:00Z',{archivedAt:'2026-11-03T12:00:00Z'}),record('claim','sponsored_survey','2026-11-02T12:00:00Z',{ticketStatus:'Verified',leadCategories:['Volunteer']})],crmSyncState:{early_access_leads:{lastSuccessAt:'2026-11-12T12:00:00Z',importedCount:3}}};
+ assert.equal(typeof sync.crmSourceReport,'function');
+ const rows=sync.crmSourceReport(store,true,now,parseCrmFilters({},now));
+ const early=rows.find(r=>r.source==='early_access_leads');
+ assert.deepEqual([early.totalRecords,early.archivedRecords,early.matchingRecords],[3,1,1]);
+ assert.equal(early.lastSuccessAt,'2026-11-12T12:00:00Z');
+ const survey=rows.find(r=>r.source==='sponsored_survey');
+ assert.equal(survey.lastSuccessAt,null);assert.equal(survey.computedAt,now.toISOString());
+ assert.deepEqual(survey.claimStatuses,{Verified:1});
+ const all=sync.crmSourceReport(store,true,now,parseCrmFilters({range:'all',archived:'include'},now));
+ assert.equal(all.reduce((n,r)=>n+r.matchingRecords,0),4);
+ const only=sync.crmSourceReport(store,true,now,parseCrmFilters({range:'all',sourceTable:'sponsored_survey'},now));
+ assert.equal(only.find(r=>r.source==='early_access_leads').matchingRecords,0);
+});
