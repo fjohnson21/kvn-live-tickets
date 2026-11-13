@@ -1,3 +1,4 @@
+import {reconcileCrmContacts} from './lib/crm-records.js';
 import {kapLogin,kapUser} from './lib/kap-staff.mjs';
 import {createLuxrideNotifications} from './lib/luxride-notifications.js';
 import {registerLuxrideBridge,forwardLuxrideEvent} from './lib/luxride-bridge.js';
@@ -78,10 +79,11 @@ import { deliverShopConfirmation } from './lib/shop-email.js';
 import { shopMetrics, shopOrdersCsv } from './lib/shop-report.js';
 
 const startupStore = readStore();
+const contactsLinked=reconcileCrmContacts(startupStore);
 const eventUpdated=synchronizeKvnLive2026Event(startupStore);
 const compOfferClosed=closePublicCompOffer(startupStore);
 const surveyRouting=routeSurveyLeads(startupStore);
-if(eventUpdated||compOfferClosed||surveyRouting.created||surveyRouting.updated)writeStore(startupStore);
+if(contactsLinked||eventUpdated||compOfferClosed||surveyRouting.created||surveyRouting.updated)writeStore(startupStore);
 console.log('Survey lead routing verified: '+JSON.stringify(surveyRouting));
 
 const app = express();
