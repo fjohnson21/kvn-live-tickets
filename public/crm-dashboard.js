@@ -58,5 +58,5 @@ function closeDetail(){detailSequence++;$('crm-detail').close();$('crm-detail').
 function open(view,filters){if(!api||user?.role!=='owner')return;state[view]=filters?{view:'contacts',...filters,page:1}:state[view];if(view==='partners')state[view].preset='partnership_pipeline';showPanel(view);renderPanel(view);load(view)}
 function clear(){epoch++;user=null;detailSequence++;if($('crm-detail')?.open)$('crm-detail').close();for(const view of ['crm','partners','reports']){if($('panel-'+view))$('panel-'+view).innerHTML=''}if($('crm-detail'))$('crm-detail').innerHTML='';if($('crm-overview')){$('crm-overview').innerHTML='';$('crm-overview').hidden=true}initialized=false}
 function init(config){api=config.api;showPanel=config.showPanel;user=config.user;if(user?.role!=='owner'){clear();return}if(!initialized){initialized=true;for(const view of ['crm','partners','reports']){renderPanel(view);document.querySelector(`#dashNav [data-panel="${view}"]`).onclick=()=>open(view)}const dialog=$('crm-detail');dialog.oncancel=e=>{e.preventDefault();closeDetail()}}overview()}
-window.KVNCrm={init,open,clear,query};
+window.KVNCrm={init,open,clear,query,openRecord(id){if(user?.role==='owner')openRecord(id)}};
 })();
