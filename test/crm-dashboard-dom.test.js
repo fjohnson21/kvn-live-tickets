@@ -26,3 +26,14 @@ test('survey list buttons select segment and source, and export the same list',a
  const button=w.document.querySelector('#panel-crm [data-survey-list="Disciple Prospect"]');assert.ok(button);button.click();await until(()=>calls.some(u=>u.includes('category=Disciple+Prospect')));
  await until(()=>!w.document.querySelector('#crm-export-crm').hidden);const href=w.document.querySelector('#crm-export-crm').href;assert.ok(href.includes('sourceTable=sponsored_survey'));assert.ok(href.includes('category=Disciple+Prospect'));assert.ok(href.includes('range=all'));dom.window.close();
 });
+test('source cards show filtered counts separately and local survey refresh is not a remote sync',async()=>{
+ const dom=new JSDOM(fs.readFileSync(new URL('../public/dashboard.html',import.meta.url),'utf8'),{url:'https://dashboard.example',runScripts:'outside-only'}),w=dom.window;
+ const sources=[{source:'sponsored_survey',status:'Connected',lastSuccessAt:null,computedAt:now.toISOString(),totalRecords:79,archivedRecords:0,matchingRecords:48,claimStatuses:{Verified:37,'Pending verification':8,Expired:3}}];
+ w.eval(fs.readFileSync(new URL('../public/crm-dashboard.js',import.meta.url),'utf8'));
+ w.KVNCrm.init({user:{role:'owner'},showPanel:()=>{},api:async()=>({total:48,partners:0,overdue:0,rows:[],filters:parseCrmFilters({},now),sources})});
+ await until(()=>w.document.querySelector('[data-total="0"]'));
+ const card=w.document.querySelector('#crm-overview-sources').textContent;
+ assert.match(card,/79.*all dates/);assert.match(card,/48.*current filters/);assert.doesNotMatch(card,/Last synced/);
+ assert.match(card,/Verified: 37/);assert.equal(w.document.querySelector('[data-total="0"] strong').textContent,'48');
+ dom.window.close();
+});
