@@ -1,3 +1,4 @@
+import {registerCommunityPass,upgradePaidSeating,COMMUNITY_PRODUCT} from './lib/community-rsvp.js';
 import {registerAccountsOverview} from './lib/accounts-overview.js';
 import {registerEventManagement} from './lib/event-management.js';
 import {reconcileCrmContacts} from './lib/crm-records.js';
@@ -83,9 +84,10 @@ import { shopMetrics, shopOrdersCsv } from './lib/shop-report.js';
 const startupStore = readStore();
 const contactsLinked=reconcileCrmContacts(startupStore);
 const eventUpdated=synchronizeKvnLive2026Event(startupStore);
+const seatingUpdated=upgradePaidSeating(startupStore);
 const compOfferClosed=closePublicCompOffer(startupStore);
 const surveyRouting=routeSurveyLeads(startupStore);
-if(contactsLinked||eventUpdated||compOfferClosed||surveyRouting.created||surveyRouting.updated)writeStore(startupStore);
+if(seatingUpdated||contactsLinked||eventUpdated||compOfferClosed||surveyRouting.created||surveyRouting.updated)writeStore(startupStore);
 console.log('Survey lead routing verified: '+JSON.stringify(surveyRouting));
 
 const app = express();
@@ -199,19 +201,22 @@ async function finalizeDonationSession(session){
 
 app.post('/api/donations/checkout',customerCheckout.middleware('donation'),async(req,res)=>{
   try{
-    const amount=Math.round(Number(req.body.amount)||0);
+    const amount=Number(req.body.amount);
     const email=String(req.body.email||'').trim().toLowerCase();
     const name=String(req.body.name||'').trim();
     if(!Number.isInteger(amount)||amount<200||amount>1000000)return res.status(400).json({error:'Enter a contribution amount between $2 and $10,000.'});
     if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:'Enter a valid email address.'});
     if(!stripe)return res.status(503).json({error:'Acts 2:44 contributions are temporarily unavailable.'});
-    const campaign=req.body.campaign==='grocery-initiative'?'grocery-initiative':'general';
-    const designation=campaign==='grocery-initiative'?'Grocery initiative: groceries, procurement and distribution costs':'Acts 2:44 community impact initiatives';
-    const d=readStore(),donation={id:id('don'),program:'acts-2-44',campaign,designation,amount,status:'pending',name,email,stripeSessionId:'',createdAt:new Date().toISOString()};
+    const campaign='kingdom-outreach';
+    if(req.body.level==='kingdom'&&amount<50000)return res.status(400).json({error:'Kingdom Partner has a $500 minimum.'});
+    if(req.body.level==='community'&&amount!==10000||req.body.level==='outreach'&&amount!==25000)return res.status(400).json({error:'Please select the correct partnership amount.'});
+    const partnershipLevel=amount>=50000?'kingdom':amount>=25000?'outreach':amount>=10000?'community':'custom';
+    const designation='Kingdom Vibe Outreach Ministry: free community gatherings and the Acts 2:44 initiative providing groceries for families this holiday season';
+    const d=readStore(),donation={id:id('don'),program:'kingdom-outreach',campaign,designation,partnershipLevel,recognitionName:String(req.body.recognitionName||name).slice(0,160),anonymous:req.body.anonymous===true,logoUrl:String(req.body.logoUrl||'').slice(0,500),supporterType:['individual','ministry','business'].includes(req.body.supporterType)?req.body.supporterType:'individual',amount,status:'pending',name,email,stripeSessionId:'',createdAt:new Date().toISOString()};
     d.donations.push(donation);writeStore(d);
     const config={
       mode:'payment',
-      line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:amount,product_data:{name:campaign==='grocery-initiative'?'Acts 2:44 Grocery Initiative':'Acts 2:44 Community Support',description:designation}}}],
+      line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:amount,product_data:{name:'Kingdom Vibe Outreach Ministry Partnership',description:designation}}}],
       success_url:`${baseUrl}/donation-success.html?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:`${baseUrl}/donate.html?cancelled=1&campaign=${campaign}`,
       metadata:{order_type:'donation',donation_id:donation.id,program:'acts-2-44',campaign},
@@ -319,7 +324,7 @@ const runCrmSync=async()=>{
 const initialMarketingStore=ensureMarketing(readStore());
 syncContacts(initialMarketingStore);writeStore(initialMarketingStore);
 // The branded promo page uses public token-based APIs; no cookie credentials cross origins.
-app.use(['/api/sponsored/info','/api/sponsored/request','/api/sponsored/confirm','/api/sponsored/pass','/api/sponsored/retry-upgrade','/api/create-checkout-session'],(req,res,next)=>{
+app.use(['/api/community-rsvp','/api/sponsored/info','/api/sponsored/request','/api/sponsored/confirm','/api/sponsored/pass','/api/sponsored/retry-upgrade','/api/create-checkout-session'],(req,res,next)=>{
   if(req.headers.origin==='https://kvnlive.com'){
     res.set({'Access-Control-Allow-Origin':'https://kvnlive.com','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type','Vary':'Origin'});
     if(req.method==='OPTIONS')return res.sendStatus(204);
@@ -673,9 +678,23 @@ app.get('/api/disciples/export/commissions.csv',auth,owner,(req,res)=>{const d=r
 app.get('/api/disciples/export/payouts.csv',auth,owner,(req,res)=>{const d=readStore();sendDiscipleCsv(res,'kvn-disciple-payouts.csv',disciplePayoutsCsv(d.disciplePayouts,d.disciples));});
 app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const disc={id:id('disc'),eventId:e.id,code:String(req.body.code||'').toUpperCase().replace(/\s/g,''),type:req.body.type==='fixed'?'fixed':'percent',value:Math.max(0,Number(req.body.value)||0),active:true,maxUses:Math.max(1,Number(req.body.maxUses)||100),uses:0}; if(!disc.code) return res.status(400).json({error:'Code required.'}); d.discounts.push(disc); writeStore(d); res.status(201).json({discount:disc}); });
 
+const communityLimits=new Map();
+app.post('/api/community-rsvp',async(req,res)=>{
+ res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer'});
+ if(req.headers.origin&&!['https://kvnlive.com',new URL(baseUrl).origin].includes(req.headers.origin))return res.status(403).json({error:'Use the KV Live website.'});
+ const key=commerceClientIdentity(req),now=Date.now();for(const [key,value] of communityLimits)if(value.until<now)communityLimits.delete(key);
+ const limit=communityLimits.get(key)||{count:0,until:now+600000};limit.count++;communityLimits.set(key,limit);
+ if(limit.count>30||communityLimits.size>10000)return res.status(429).json({error:'Too many requests. Please try again later.'});
+ try{const store=readStore(),{order,reused}=registerCommunityPass(store,req.body);if(!reused)writeStore(store);
+ if(!reused){const event=store.events.find(e=>e.id===order.eventId);await sendConfirmation(order,event);const latest=readStore(),current=latest.orders.find(o=>o.id===order.id);if(current){current.confirmationEmail=order.confirmationEmail;writeStore(latest);}}
+ return res.status(reused?200:201).json({orderId:order.id,tickets:order.tickets.map(t=>({code:t.code,ticketName:t.ticketName})),emailStatus:order.confirmationEmail?.status||'pending'});
+ }catch(error){res.status(error.statusCode||500).json({error:error.statusCode?error.message:'Unable to register. Please try again.'});}
+});
+
 app.post('/api/create-checkout-session', customerCheckout.middleware('ticket'), async (req,res)=>{
   try{
     const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId && x.status==='published'); if(!e) return res.status(404).json({error:'Event is not available for checkout.'});
+    if(e.communityRsvp)return res.status(409).json({error:'KV Live is now free. Please RSVP for your free community pass.',rsvpUrl:'https://kvnlive.com/passes'});
     let sponsoredClaim=null;
     if(req.body.sponsoredClaimToken){try{sponsoredClaim=validateUpgrade(d,req.body);}catch(error){return res.status(error.statusCode||400).json({error:error.message});}}
     if(req.body.promotion){try{validatePromoVipRequest(e,req.body);}catch(error){return res.status(error.statusCode||400).json({error:error.message});}}
@@ -774,6 +793,7 @@ async function finalizePaidSession(session){
   o.paidAt=new Date().toISOString();
   finalizeOrderItems(o,e,{id,ticketCode});
   if(o.orderType==='sponsored_upgrade')completeUpgrade(d,o);
+  upgradePaidSeating(d);
   if(o.discountAmount){ const dc=d.discounts.find(x=>x.eventId===e.id&&x.code===session.metadata?.discount_code); if(dc)dc.uses++; }
   if(o.cartId){ const c=d.abandonedCarts.find(x=>x.id===o.cartId); if(c){ c.status='converted'; c.updatedAt=new Date().toISOString(); } }
   await processDiscipleCommission(d,o,e,session);

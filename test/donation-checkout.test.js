@@ -18,6 +18,8 @@ test('Acts 2:44 contribution checkout creates a non-ticket payment and records i
   let stderr='';child.stderr.on('data',c=>stderr+=c);
   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error(stderr||'startup timeout')),5000);child.stdout.on('data',c=>{if(String(c).includes('running at')){clearTimeout(timer);resolve();}});child.on('exit',()=>{clearTimeout(timer);reject(Error(stderr));});});
 
+  for(const amount of [49999,10000]) {const rejected=await fetch(base+'/api/donations/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({amount,level:'kingdom'})});assert.equal(rejected.status,400);}
+  const higher=await fetch(base+'/api/donations/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({amount:75000,level:'kingdom',name:'Test Partner',anonymous:true})});assert.equal(higher.status,201);const highBody=await higher.json();const highStore=JSON.parse(fs.readFileSync(path.join(dir,'store.json'),'utf8'));const highGift=highStore.donations.find(d=>d.id===highBody.donationId);assert.equal(highGift.amount,75000);assert.equal(highGift.partnershipLevel,'kingdom');assert.equal(highGift.campaign,'kingdom-outreach');assert.equal(highGift.anonymous,true);
   const checkout=await fetch(base+'/api/donations/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:5000,name:'Test Donor',email:'donor@example.com'})});
   assert.equal(checkout.status,201,await checkout.clone().text());
   const body=await checkout.json();

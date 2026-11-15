@@ -33,6 +33,7 @@ async function init() {
   const response = await fetch(`/api/events/${encodeURIComponent(slug || '')}${promotion?'?promotion='+encodeURIComponent(promotion):''}`), data = await response.json();
   if (!response.ok) { page.innerHTML = '<div class="shell section"><h1>Event not found.</h1><a href="/">Back to events</a></div>'; return; }
   event = data.event; organization = data.organization;
+  if(event.communityRsvp){const url=new URL('https://kvnlive.com/passes');if(discipleParam)url.searchParams.set('disciple',discipleParam);location.replace(url.toString());return;}
   if(isKvnBundle()) event.products=event.products.filter(p=>['kv-kingdom-premier-2026','kv-all-access-2026','kv-general-admission-2026'].includes(p.id));
   document.documentElement.style.setProperty('--accent', event.theme?.accent || '#e2252b');
   document.title = `${event.title} • KVN Live Tickets`;
