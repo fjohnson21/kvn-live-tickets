@@ -23,6 +23,7 @@
       result.append(text('span', 'CHECKED IN', 'kicker'), text('h2', data.ticket.ticketName),
         text('p', `${data.buyerName || data.ticket.holderName || 'Attendee'} • ${data.event?.title || ''}`),
         text('strong', data.ticket.code));
+      if(data.ticket.seating)result.append(text('p',data.ticket.seating,'seating')); 
     } else {
       result.append(text('h2', data.error || 'Unable to confirm check-in.'));
       if (data.ticket) result.append(text('p', data.ticket.code));
