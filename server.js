@@ -1,3 +1,4 @@
+import {registerPayPalPartnership} from './lib/paypal-partnership.js';
 import {registerCommunityPass,upgradePaidSeating,COMMUNITY_PRODUCT} from './lib/community-rsvp.js';
 import {registerAccountsOverview} from './lib/accounts-overview.js';
 import {registerEventManagement} from './lib/event-management.js';
@@ -198,6 +199,8 @@ async function finalizeDonationSession(session){
   }
   return donation;
 }
+
+registerPayPalPartnership(app,{readStore,writeStore,sendReceipt:donation=>sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Kingdom Vibe Outreach Ministry <info@tickets.kvnlive.com>'})});
 
 app.post('/api/donations/checkout',customerCheckout.middleware('donation'),async(req,res)=>{
   try{
