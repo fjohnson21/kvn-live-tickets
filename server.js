@@ -202,8 +202,11 @@ async function finalizeDonationSession(session){
   return donation;
 }
 
-registerPayPalSetup(app,{auth,owner,dataDir:runtimeDataDir});
-registerPayPalPartnership(app,{readStore,writeStore,sendReceipt:donation=>sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Kingdom Vibe Outreach Ministry <info@tickets.kvnlive.com>'})});
+registerPayPalSetup(app,{auth,owner,dataDir:runtimeDataDir,readiness:()=>({testPaymentVerified:readStore().donations.some(d=>d.paypalSetupTest&&d.status==='paid'&&!d.paymentAttention)}),createTest:async req=>{
+ const result=await paypalPartnership.checkout({amount:200,level:'custom',name:req.user.name||'KV Live owner',email:req.user.email,anonymous:true,checkoutRequestId:req.body.checkoutRequestId});
+ const store=readStore(),donation=store.donations.find(d=>d.id===result.donationId);if(donation){donation.paypalSetupTest=true;writeStore(store);}return result;
+}});
+const paypalPartnership=registerPayPalPartnership(app,{readStore,writeStore,sendReceipt:donation=>sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Kingdom Vibe Outreach Ministry <info@tickets.kvnlive.com>'})});
 
 app.post('/api/donations/checkout',customerCheckout.middleware('donation'),async(req,res)=>{
   try{
