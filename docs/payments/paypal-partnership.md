@@ -34,3 +34,9 @@ Open `https://kvnlive.com/command-center/paypal-setup` while signed in as the KV
 The secret is stored on the existing persistent Render disk as `paypal-secret.enc` with mode 0600 and AES-256-GCM authenticated encryption. `PAYPAL_SETUP_MASTER_KEY` is a separate 32-byte base64 key held in Render environment settings, never source or the store JSON. The encrypted file is bound to the configured client ID and environment. Back up the encrypted file and master key through existing secure operations; do not rotate/delete the key while relying on the saved secret. The vault loads the decrypted secret into process memory on startup. Encryption does not protect against compromise of the running server or an authorized owner account.
 
 Saving does not enable checkout, register a webhook, or move funds. PayPal setup still needs the webhook ID and provider testing before activation.
+
+## Notification setup and owner test checkout
+
+After loading saved credentials (and after each encrypted save), the server reconciles the exact KVN webhook URL against the app's registered webhooks. It reuses an existing matching webhook, repairs missing required event subscriptions, or creates one when absent. The verified ID is set in process memory; on restart it is retrieved again from PayPal. Failure leaves PayPal unavailable, with only a generic status log.
+
+The owner portal includes same-origin authenticated connect and test controls. The test fixes the amount at $2, uses the signed-in owner's receipt address and a browser-persisted request UUID, and marks the local pending record as a setup test. It opens PayPal approval; it does not charge without buyer approval. A separate buyer account may be required. The status shows only credential presence, notification readiness, provider state and whether a test capture completed. It never exposes credentials. Production activation remains a separate deployment setting after verification.
