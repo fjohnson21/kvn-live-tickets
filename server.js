@@ -1,3 +1,4 @@
+import {registerPayPalSetup} from './lib/paypal-setup.js';
 import {registerPayPalPartnership} from './lib/paypal-partnership.js';
 import {registerCommunityPass,upgradePaidSeating,COMMUNITY_PRODUCT} from './lib/community-rsvp.js';
 import {registerAccountsOverview} from './lib/accounts-overview.js';
@@ -169,6 +170,7 @@ customerCheckout.register(app);
 app.use('/performance-agreement.html',(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next()});
 app.use(['/sponsored.html','/sponsored-admin.html'],(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://kvnlive.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();});
 app.use((req,res,next)=>{if(req.method==='GET'&&String(req.hostname).endsWith('.onrender.com')&&!commerceClientIdentity(req).startsWith('bridge:')){const url=new URL(req.originalUrl,'https://kvnlive.com'),destination=legacyPageDestination(url.pathname,url.search);if(destination)return res.redirect(302,destination);}next();});
+app.use(['/paypal-setup.html','/paypal-setup.js'],(req,res,next)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();});
 app.use(express.static('public'));
 const uploadDir = process.env.UPLOAD_DIR || path.resolve('public/uploads');
 requireDir(uploadDir);
@@ -200,6 +202,7 @@ async function finalizeDonationSession(session){
   return donation;
 }
 
+registerPayPalSetup(app,{auth,owner,dataDir:runtimeDataDir});
 registerPayPalPartnership(app,{readStore,writeStore,sendReceipt:donation=>sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Kingdom Vibe Outreach Ministry <info@tickets.kvnlive.com>'})});
 
 app.post('/api/donations/checkout',customerCheckout.middleware('donation'),async(req,res)=>{
