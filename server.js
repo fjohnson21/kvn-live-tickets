@@ -1,3 +1,4 @@
+import {queueCommunityFollowup,createCommunityRecipientPreparation,readCommunityPass} from './lib/community-followup.js';
 import {registerPayPalSetup} from './lib/paypal-setup.js';
 import {createReservedUpgrades,registerReservedRoutes} from './lib/reserved-upgrades.js';
 import {createPayPalClient,registerPayPalPartnership} from './lib/paypal-partnership.js';
@@ -129,7 +130,7 @@ function recordStripeReversal(event){
 const smsTwilioClient=createTwilioClient({env:process.env});
 const smsTxt180Client=createTxt180Client({env:process.env});
 const smsContacts=process.env.SMS_PROVIDER==='txt180'?createSmsContactsService({readStore,writeStore,client:smsTxt180Client,env:process.env}):null;
-const smsDispatcher=createSmsDispatcher({readStore,writeStore,client:smsContacts?smsTxt180Client:smsTwilioClient,env:process.env,beforeDispatch:smsContacts?()=>smsContacts.syncOptouts():null});
+const smsDispatcher=createSmsDispatcher({readStore,writeStore,client:smsContacts?smsTxt180Client:smsTwilioClient,env:process.env,beforeDispatch:smsContacts?()=>smsContacts.syncOptouts():null,prepareRecipient:createCommunityRecipientPreparation({readStore,writeStore,client:smsTxt180Client})});
 smsDispatcher.start();
 if(smsContacts)smsContacts.verifyConnection().then(()=>console.log('TXT180 customer API connection verified.')).catch(()=>console.error('TXT180 customer API connection check failed.'));
 registerSmsOptIn(app,{env:process.env});
@@ -691,6 +692,7 @@ app.get('/api/disciples/export/commissions.csv',auth,owner,(req,res)=>{const d=r
 app.get('/api/disciples/export/payouts.csv',auth,owner,(req,res)=>{const d=readStore();sendDiscipleCsv(res,'kvn-disciple-payouts.csv',disciplePayoutsCsv(d.disciplePayouts,d.disciples));});
 app.post('/api/discounts', auth, (req,res)=>{ const d=readStore(); const e=d.events.find(x=>x.id===req.body.eventId); if(!e||!canManage(req.user,e)) return res.status(403).json({error:'No access.'}); const disc={id:id('disc'),eventId:e.id,code:String(req.body.code||'').toUpperCase().replace(/\s/g,''),type:req.body.type==='fixed'?'fixed':'percent',value:Math.max(0,Number(req.body.value)||0),active:true,maxUses:Math.max(1,Number(req.body.maxUses)||100),uses:0}; if(!disc.code) return res.status(400).json({error:'Code required.'}); d.discounts.push(disc); writeStore(d); res.status(201).json({discount:disc}); });
 
+app.post('/api/community-pass',(req,res)=>{res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow'});const result=readCommunityPass(readStore(),req.body.token);return result?res.json(result):res.status(404).json({error:'This private pass link is not valid. Please use your confirmation email.'});});
 const communityLimits=new Map();
 app.post('/api/community-rsvp',async(req,res)=>{
  res.set({'Cache-Control':'no-store, private','Referrer-Policy':'no-referrer'});
@@ -698,7 +700,7 @@ app.post('/api/community-rsvp',async(req,res)=>{
  const key=commerceClientIdentity(req),now=Date.now();for(const [key,value] of communityLimits)if(value.until<now)communityLimits.delete(key);
  const limit=communityLimits.get(key)||{count:0,until:now+600000};limit.count++;communityLimits.set(key,limit);
  if(limit.count>30||communityLimits.size>10000)return res.status(429).json({error:'Too many requests. Please try again later.'});
- try{const store=readStore(),{order,reused}=registerCommunityPass(store,req.body);if(!reused)writeStore(store);
+ try{const store=readStore(),{order,reused}=registerCommunityPass(store,req.body);if(!reused){queueCommunityFollowup(store,order,req.body,{trusted:commerceClientIdentity(req).startsWith('bridge:')});writeStore(store);}
  if(!reused){const event=store.events.find(e=>e.id===order.eventId);await sendConfirmation(order,event);const latest=readStore(),current=latest.orders.find(o=>o.id===order.id);if(current){current.confirmationEmail=order.confirmationEmail;writeStore(latest);}}
  return res.status(reused?200:201).json({orderId:order.id,tickets:order.tickets.map(t=>({code:t.code,ticketName:t.ticketName})),emailStatus:order.confirmationEmail?.status||'pending'});
  }catch(error){res.status(error.statusCode||500).json({error:error.statusCode?error.message:'Unable to register. Please try again.'});}
