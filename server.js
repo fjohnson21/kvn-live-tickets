@@ -1,5 +1,6 @@
 import {registerPayPalSetup} from './lib/paypal-setup.js';
-import {registerPayPalPartnership} from './lib/paypal-partnership.js';
+import {createReservedUpgrades,registerReservedRoutes} from './lib/reserved-upgrades.js';
+import {createPayPalClient,registerPayPalPartnership} from './lib/paypal-partnership.js';
 import {registerCommunityPass,upgradePaidSeating,COMMUNITY_PRODUCT} from './lib/community-rsvp.js';
 import {registerAccountsOverview} from './lib/accounts-overview.js';
 import {registerEventManagement} from './lib/event-management.js';
@@ -145,6 +146,7 @@ app.post('/api/webhook', express.raw({type:'application/json'}), async (req,res)
     if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).send('Webhook not configured');
     const sig=req.headers['stripe-signature'];
     const event=stripe.webhooks.constructEvent(req.body,sig,process.env.STRIPE_WEBHOOK_SECRET);
+    if(await reservedUpgrades.stripeWebhook(event))return res.json({received:true});
     if(await forwardLuxrideEvent(event))return res.json({received:true});
     if(event.type==='checkout.session.completed' && event.data.object.payment_status==='paid'){
       if(event.data.object.metadata?.order_type==='donation'){
@@ -206,7 +208,9 @@ registerPayPalSetup(app,{auth,owner,dataDir:runtimeDataDir,readiness:()=>({testP
  const result=await paypalPartnership.checkout({amount:200,level:'custom',name:req.user.name||'KV Live owner',email:req.user.email,anonymous:true,checkoutRequestId:req.body.checkoutRequestId});
  const store=readStore(),donation=store.donations.find(d=>d.id===result.donationId);if(donation){donation.paypalSetupTest=true;writeStore(store);}return result;
 }});
-const paypalPartnership=registerPayPalPartnership(app,{readStore,writeStore,sendReceipt:donation=>sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Kingdom Vibe Outreach Ministry <info@tickets.kvnlive.com>'})});
+const reservedUpgrades=createReservedUpgrades({readStore,writeStore,paypal:createPayPalClient(),stripe,sendConfirmation});
+registerReservedRoutes(app,{service:reservedUpgrades,readStore,writeStore,auth,owner,stripe});
+const paypalPartnership=registerPayPalPartnership(app,{readStore,writeStore,onVerifiedWebhook:event=>reservedUpgrades.paypalWebhook(event),sendReceipt:donation=>sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Kingdom Vibe Outreach Ministry <info@tickets.kvnlive.com>'})});
 
 app.post('/api/donations/checkout',customerCheckout.middleware('donation'),async(req,res)=>{
   try{
@@ -758,6 +762,7 @@ async function sendConfirmation(order,event,{force=false}={}){
 
 const sessionFinalizations=new Map();
 async function finalizeSession(session){
+ if(readStore().orders.some(o=>o.orderType==='reserved_upgrade'&&o.stripeSessionId===session.id))return reservedUpgrades.complete({sessionId:session.id},{verified:true});
  if(session.payment_status!=='paid')return;
  if(sessionFinalizations.has(session.id))return sessionFinalizations.get(session.id);
  const operation=finalizePaidSession(session);sessionFinalizations.set(session.id,operation);
