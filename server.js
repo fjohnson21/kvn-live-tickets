@@ -1,3 +1,4 @@
+import {registerCafe} from './lib/cafe.js';
 import {givingLedger} from './lib/giving.js';
 import {queueCommunityFollowup,createCommunityRecipientPreparation,readCommunityPass} from './lib/community-followup.js';
 import {registerPayPalSetup} from './lib/paypal-setup.js';
@@ -212,7 +213,8 @@ registerPayPalSetup(app,{auth,owner,dataDir:runtimeDataDir,readiness:()=>({testP
 }});
 const reservedUpgrades=createReservedUpgrades({readStore,writeStore,paypal:createPayPalClient(),stripe,sendConfirmation});
 registerReservedRoutes(app,{service:reservedUpgrades,readStore,writeStore,auth,owner,stripe});
-const paypalPartnership=registerPayPalPartnership(app,{readStore,writeStore,onVerifiedWebhook:event=>reservedUpgrades.paypalWebhook(event),sendReceipt:donation=>sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Kingdom Vibe Outreach Ministry <info@tickets.kvnlive.com>'})});
+const cafeWebhook=registerCafe(app,{readStore,writeStore,auth,owner});
+const paypalPartnership=registerPayPalPartnership(app,{readStore,writeStore,onVerifiedWebhook:async event=>(await cafeWebhook(event))||reservedUpgrades.paypalWebhook(event),sendReceipt:donation=>sendDonationReceipt({donation,apiKey:process.env.RESEND_API_KEY,from:process.env.DONATION_EMAIL_FROM||'Kingdom Vibe Outreach Ministry <info@tickets.kvnlive.com>'})});
 
 // Credentials may load asynchronously from the owner vault after startup.
 const givingTimer = setInterval(() => {
