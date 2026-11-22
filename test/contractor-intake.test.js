@@ -21,6 +21,13 @@ test('signed payee intake, encrypted storage, one-time finance access',async t=>
  }
  const admin=(action,id='a',extra={})=>call(action,{id,...extra},true);
  assert.equal((await admin('invite','unsigned')).statusCode,409);
+ const vendorInput={name:'Vendor',email:'vendor@example.invalid',eventKey:'Test',amount:'500',reason:'Hosting confirmed by email'};
+ const vendor=(await call('approve-vendor',vendorInput,true)).value;
+ assert.ok(vendor.id);assert.equal(data.agreements.length,2);
+ assert.equal((await call('approve-vendor',vendorInput,true)).statusCode,409);
+ const vendorToken=(await admin('invite',vendor.id)).value.url.split('#')[1];
+ assert.equal((await call('code',{token:vendorToken})).statusCode,200);
+ assert.equal(mail.pop().to,vendorInput.email);
  const invite=async()=>(await admin('invite')).value.url.split('#')[1],old=await invite(),token=await invite();
  assert.equal((await call('code',{token:old})).statusCode,403);
  await call('code',{token});assert.equal(mail.at(-1).to,accepted.email);const code=mail.at(-1).text.match(/\b\d{8}\b/)[0];
