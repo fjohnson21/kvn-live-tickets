@@ -13,4 +13,14 @@ test('member HTTP authentication, CSRF, scope, reset delivery and logout',async 
  r=await post('login',{identifier:'alice',password:'a strong password 12345'});assert.equal(r.status,200);const cookie=r.headers.get('set-cookie');assert.match(cookie,/HttpOnly; Secure; SameSite=Strict/);assert.ok(!JSON.stringify(await r.json()).includes('token'));
  r=await fetch(base+'/api/member/dashboard?discipleId=b',{headers:{cookie}});assert.equal(r.status,200);const data=await r.json();assert.equal(data.profile.id,'a');assert.equal(data.earnings.length,0);assert.match(r.headers.get('cache-control'),/no-store/);
  r=await post('logout',{}, {cookie});assert.equal(r.status,200);assert.equal((await fetch(base+'/api/member/dashboard',{headers:{cookie}})).status,401);
+ r=await post('signup',{email:'new@example.com'});assert.equal(r.status,202);
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(delivered.email,'new@example.com');
+ const setup=new URL(delivered.url);assert.equal(setup.pathname,'/account');
+ const signupToken=new URLSearchParams(setup.hash.slice(1)).get('token');
+ r=await post('complete-reset',{token:signupToken,username:'newvisitor',password:'a new member password 12345'});assert.equal(r.status,200);
+ r=await post('login',{identifier:'newvisitor',password:'a new member password 12345'});assert.equal(r.status,200);
+ const visitorCookie=r.headers.get('set-cookie');
+ r=await fetch(base+'/api/member/personal',{headers:{cookie:visitorCookie}});assert.equal(r.status,200);assert.deepEqual((await r.json()).tickets,[]);
+ assert.equal((await fetch(base+'/api/member/dashboard',{headers:{cookie:visitorCookie}})).status,403);
+
 });
