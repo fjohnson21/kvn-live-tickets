@@ -40,8 +40,16 @@
     function render(){
      const records=report.rows.filter(row=>!select.value||row.eventKey===select.value);
      const fields=[['name','Payee'],['email','Email'],['eventKey','Event'],['source','Payee type'],['amount','Recorded amount (USD)'],['submittedAt','Form received (UTC)']];
-     $('depositRows').innerHTML=`<p>${records.length} submitted · Pulled ${esc(date(report.generatedAt))}</p><button class="btn" id="depositExport">Download CSV</button><div class="table-wrap"><table class="table"><thead><tr>${fields.map(([,label])=>`<th>${esc(label)}</th>`).join('')}<th>Payment packet</th></tr></thead><tbody>${records.map((row,index)=>`<tr>${fields.map(([key])=>`<td>${esc(row[key]??'—')}</td>`).join('')}<td>${row.available?`<button class="btn" data-packet="${index}">Open packet</button>`:'Unavailable'}</td></tr>`).join('')}</tbody></table></div>`;
+     $('depositRows').innerHTML=`<p>${records.length} submitted · Pulled ${esc(date(report.generatedAt))}</p><button class="btn" id="depositExport">Download CSV</button> <button class="btn" id="depositEmail">Email CSV to owner</button><span role="status" id="depositMailStatus"></span><div class="table-wrap"><table class="table"><thead><tr>${fields.map(([,label])=>`<th>${esc(label)}</th>`).join('')}<th>Payment packet</th></tr></thead><tbody>${records.map((row,index)=>`<tr>${fields.map(([key])=>`<td>${esc(row[key]??'—')}</td>`).join('')}<td>${row.available?`<button class="btn" data-packet="${index}">Open packet</button>`:'Unavailable'}</td></tr>`).join('')}</tbody></table></div>`;
      panel.querySelectorAll('[data-packet]').forEach(button=>button.onclick=guard(()=>paymentDetails(records[Number(button.dataset.packet)])));
+     const emailButton=$('depositEmail'),mailStatus=$('depositMailStatus'),requestId=crypto.randomUUID();
+     emailButton.onclick=guard(async()=>{
+      emailButton.disabled=true;
+      try{
+       const sent=await post(endpoint+'email-deposit-report',{eventKey:select.value,requestId});
+       mailStatus.textContent=' Email accepted for '+sent.recipient+' ('+sent.count+' submissions).';
+      }catch(error){emailButton.disabled=false;throw error}
+     });
      $('depositExport').onclick=()=>{
       const cell=value=>{
        let text=String(value??'');
