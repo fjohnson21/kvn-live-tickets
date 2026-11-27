@@ -12,6 +12,7 @@
     "prestart": "node scripts/import-survey-sms.js && node scripts/recover-sponsored-sms.js"
   },
   "dependencies": {
+    "@zip.js/zip.js": "^2.8.11",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "fast-xml-parser": "^5.11.2",

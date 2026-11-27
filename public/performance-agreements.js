@@ -40,8 +40,27 @@
     function render(){
      const records=report.rows.filter(row=>!select.value||row.eventKey===select.value);
      const fields=[['name','Payee'],['email','Email'],['eventKey','Event'],['source','Payee type'],['amount','Recorded amount (USD)'],['submittedAt','Form received (UTC)']];
-     $('depositRows').innerHTML=`<p>${records.length} submitted · Pulled ${esc(date(report.generatedAt))}</p><button class="btn" id="depositExport">Download CSV</button> <button class="btn" id="depositEmail">Email CSV to owner</button><span role="status" id="depositMailStatus"></span><div class="table-wrap"><table class="table"><thead><tr>${fields.map(([,label])=>`<th>${esc(label)}</th>`).join('')}<th>Payment packet</th></tr></thead><tbody>${records.map((row,index)=>`<tr>${fields.map(([key])=>`<td>${esc(row[key]??'—')}</td>`).join('')}<td>${row.available?`<button class="btn" data-packet="${index}">Open packet</button>`:'Unavailable'}</td></tr>`).join('')}</tbody></table></div>`;
+     $('depositRows').innerHTML=`<p>${records.length} submitted · Pulled ${esc(date(report.generatedAt))}</p><button class="btn" id="depositExport">Download submission summary</button> <button class="btn" id="depositEmail">Email submission summary</button><span role="status" id="depositMailStatus"></span><div id="bankReportWork"></div><div class="table-wrap"><table class="table"><thead><tr>${fields.map(([,label])=>`<th>${esc(label)}</th>`).join('')}<th>Payment packet</th></tr></thead><tbody>${records.map((row,index)=>`<tr>${fields.map(([key])=>`<td>${esc(row[key]??'—')}</td>`).join('')}<td>${row.available?`<button class="btn" data-packet="${index}">Open packet</button>`:'Unavailable'}</td></tr>`).join('')}</tbody></table></div>`;
      panel.querySelectorAll('[data-packet]').forEach(button=>button.onclick=guard(()=>paymentDetails(records[Number(button.dataset.packet)])));
+     const bankWork=$('bankReportWork'),eventKey=select.value||(events.length===1?events[0]:'');
+     if(eventKey&&records.length){
+      bankWork.innerHTML='<button type="button" class="btn" id="bankReportCode">Request code for bank-detail CSV</button><form id="bankReportForm" hidden><label>Finance verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" required></label><button class="btn">Email encrypted bank-detail CSV</button></form><p role="status" id="bankReportStatus"></p>';
+      const codeButton=$('bankReportCode'),form=$('bankReportForm'),status=$('bankReportStatus');
+      codeButton.onclick=guard(async()=>{
+       codeButton.disabled=true;
+       try{const result=await post(endpoint+'bank-report-code',{eventKey});form.hidden=false;status.textContent='Code sent to the owner for '+result.count+' payees.'}
+       finally{codeButton.disabled=false}
+      });
+      form.onsubmit=guard(async e=>{
+       e.preventDefault();
+       const button=form.querySelector('button');button.disabled=true;
+       try{
+        const sent=await post(endpoint+'email-bank-report',{eventKey,code:form.elements.code.value});
+        form.reset();form.hidden=true;codeButton.hidden=true;
+        status.textContent='Encrypted CSV sent to '+sent.recipient+' for '+sent.count+' payees. Save this ZIP password before closing: '+sent.password;
+       }finally{button.disabled=false}
+      });
+     }else if(events.length){bankWork.textContent='Select one event to request a bank-detail CSV.'}
      const emailButton=$('depositEmail'),mailStatus=$('depositMailStatus'),requestId=crypto.randomUUID();
      emailButton.onclick=guard(async()=>{
       emailButton.disabled=true;
