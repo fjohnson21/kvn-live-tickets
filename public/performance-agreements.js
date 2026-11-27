@@ -14,6 +14,49 @@
  $('agreementsNew').onclick=()=>draftForm();$('agreementsRoot').querySelectorAll('[data-agreement]').forEach(b=>b.onclick=guard(()=>details(b.dataset.agreement)));
  }
  function draftForm(existing){modal(existing?'Revise unissued draft':'New performance agreement',`<form id="agreementDraft" class="form-stack">${existing?'':`<label>Event reference<input name="eventKey" required maxlength="100" placeholder="Example: KV-LIVE-20261121"></label><label>Recipient legal name<input name="name" required maxlength="150"></label><label>Recipient email<input name="email" type="email" required maxlength="254"></label>`}<label>Exact finalized agreement text<textarea name="text" required maxlength="50000" rows="15">${esc(existing?.versions.at(-1).text||'')}</textarea></label><p>No terms are generated automatically. Saving a draft does not send anything.</p><button class="btn primary">Save draft for review</button></form>`);$('agreementDraft').onsubmit=guard(async e=>{e.preventDefault();const snap=epoch,p=Object.fromEntries(new FormData(e.target));const a=await post(existing?root+'/'+existing.id+'/revise':root,p);if(snap!==epoch)return;await refresh();await details(a.id)})}
+ async function depositReport(){
+  const snap=epoch,endpoint=root+'/finance/';
+  const settings=await post(endpoint+'report-settings');
+  if(snap!==epoch||user?.role!=='owner')return;
+  modal('Payment deposit report',`<div class="inline-actions"><button class="btn" id="depositToggle">${settings.enabled?'Deactivate':'Activate'} reports</button><button class="btn primary" id="depositRun" ${settings.enabled?'':'disabled'}>Pull submitted forms</button></div><div id="depositResults" aria-live="polite"></div>`);
+  const panel=$('depositResults'),toggle=$('depositToggle'),run=$('depositRun');
+  toggle.onclick=guard(async()=>{
+   toggle.disabled=true;run.disabled=true;
+   try{
+    const next=await post(endpoint+'set-report-enabled',{enabled:!settings.enabled});
+    if(!panel.isConnected)return;
+    settings.enabled=next.enabled;panel.replaceChildren();
+    toggle.textContent=settings.enabled?'Deactivate reports':'Activate reports';
+   }finally{toggle.disabled=false;run.disabled=!settings.enabled}
+  });
+  run.onclick=guard(async()=>{
+   run.disabled=true;toggle.disabled=true;
+   try{
+    const report=await post(endpoint+'deposit-report');
+    if(!panel.isConnected)return;
+    const events=[...new Set(report.rows.map(row=>row.eventKey))].sort();
+    panel.innerHTML=`<label>Event<select id="depositEvent"><option value="">All events</option>${events.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select></label><div id="depositRows"></div>`;
+    const select=$('depositEvent');
+    function render(){
+     const records=report.rows.filter(row=>!select.value||row.eventKey===select.value);
+     const fields=[['name','Payee'],['email','Email'],['eventKey','Event'],['source','Payee type'],['amount','Recorded amount (USD)'],['submittedAt','Form received (UTC)']];
+     $('depositRows').innerHTML=`<p>${records.length} submitted · Pulled ${esc(date(report.generatedAt))}</p><button class="btn" id="depositExport">Download CSV</button><div class="table-wrap"><table class="table"><thead><tr>${fields.map(([,label])=>`<th>${esc(label)}</th>`).join('')}<th>Payment packet</th></tr></thead><tbody>${records.map((row,index)=>`<tr>${fields.map(([key])=>`<td>${esc(row[key]??'—')}</td>`).join('')}<td>${row.available?`<button class="btn" data-packet="${index}">Open packet</button>`:'Unavailable'}</td></tr>`).join('')}</tbody></table></div>`;
+     panel.querySelectorAll('[data-packet]').forEach(button=>button.onclick=guard(()=>paymentDetails(records[Number(button.dataset.packet)])));
+     $('depositExport').onclick=()=>{
+      const cell=value=>{
+       let text=String(value??'');
+       if(/^[\s\u0000-\u001f]*[=+@-]/.test(text))text="'"+text;
+       return '"'+text.replaceAll('"','""')+'"';
+      };
+      const csv=[fields.map(([,label])=>label),...records.map(row=>fields.map(([key])=>row[key]))].map(row=>row.map(cell).join(',')).join('\r\n');
+      const link=document.createElement('a'),url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+      link.href=url;link.download='kv-live-deposit-submissions.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+     };
+    }
+    select.onchange=render;render();
+   }finally{toggle.disabled=false;run.disabled=!settings.enabled}
+  });
+ }
  async function vendorPayments(){
   const current=epoch,endpoint=root+'/finance/',vendors=await post(endpoint+'vendors');
   if(current!==epoch)return;
@@ -46,5 +89,5 @@
  const run=action=>guard(async()=>{if(!$('agreementConfirm').checked)throw Error('Confirm you reviewed the exact text and recipient.');if(action==='send'&&!confirm('Issue this exact agreement to '+a.email+' now?'))return;const snap=epoch;const b=$('agreement'+action[0].toUpperCase()+action.slice(1));if(b)b.disabled=true;try{await post(root+'/'+a.id+'/'+action,{hash:v.hash,confirm:true,retry:a.attempts.length>0});if(snap!==epoch)return;await refresh();await details(a.id)}finally{if(b?.isConnected)b.disabled=false}});
  if($('agreementRevise'))$('agreementRevise').onclick=()=>draftForm(a);for(const action of ['approve','send','revoke']){const b=$('agreement'+action[0].toUpperCase()+action.slice(1));if(b)b.onclick=run(action)}
  }
- window.KVNAgreements={init(options){api=options.api;user=options.user;if(user?.role==='owner')refresh().catch(e=>message(e.message))},clear(){epoch++;user=null;rows=[];close();if($('agreementsRoot'))$('agreementsRoot').innerHTML=''}};
+ window.KVNAgreements={openDepositReport:guard(depositReport),init(options){api=options.api;user=options.user;if(user?.role==='owner')refresh().catch(e=>message(e.message))},clear(){epoch++;user=null;rows=[];close();if($('agreementsRoot'))$('agreementsRoot').innerHTML=''}};
 })();
