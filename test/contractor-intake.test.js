@@ -1,3 +1,4 @@
+import {ZipReader,Uint8ArrayReader,TextWriter} from '@zip.js/zip.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -43,6 +44,22 @@ test('signed payee intake, encrypted storage, one-time finance access',async t=>
  assert.deepEqual(report.rows.map(r=>r.id),['a']);
  assert.equal(report.rows[0].available,true);
  assert.ok(!JSON.stringify(report).includes(payload.account));
+ const bankArgs={eventKey:'Test'};
+ assert.equal((await admin('bank-report-code','a',bankArgs)).value.count,1);
+ const bankCode=mail.pop().text.match(/\b\d{8}\b/)[0];
+ const verified={...bankArgs,code:bankCode};
+ assert.equal((await call('email-bank-report',verified,true,'other-session')).statusCode,403);
+ assert.equal((await admin('email-bank-report','a',{...verified,code:'invalid'})).statusCode,403);
+ const delivered=(await admin('email-bank-report','a',verified)).value;
+ assert.equal(delivered.count,1);assert.equal((await admin('email-bank-report','a',verified)).statusCode,403);
+ const bankMail=mail.pop();assert.equal(bankMail.to,env.OWNER_EMAIL);assert.ok(!bankMail.text.includes(delivered.password));
+ const zip=new ZipReader(new Uint8ArrayReader(Buffer.from(bankMail.attachments[0].content,'base64')),{useWebWorkers:false});
+ const [entry]=await zip.getEntries();assert.equal(entry.encrypted,true);
+ await assert.rejects(entry.getData(new TextWriter(),{password:'incorrect'}));
+ const bankCsv=await entry.getData(new TextWriter(),{password:delivered.password});
+ assert.ok(bankCsv.includes([payload.holder,payload.type,payload.routing,payload.account].join(',')));
+ assert.ok(!bankCsv.includes(payload.pdf));await zip.close();
+ assert.equal(accepted.intake.accessHistory.at(-1).action,'verified-bank-csv-export');
  data.financeVendors[0].intake={submittedAt:accepted.intake.submittedAt,record:'example'};
  assert.deepEqual((await admin('deposit-report')).value.rows.map(r=>r.source),['Agreement','Vendor']);
  const emailArgs={eventKey:'Test',requestId:crypto.randomUUID(),to:'other@example.invalid'};
