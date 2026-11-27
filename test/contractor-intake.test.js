@@ -45,7 +45,14 @@ test('signed payee intake, encrypted storage, one-time finance access',async t=>
  assert.ok(!JSON.stringify(report).includes(payload.account));
  data.financeVendors[0].intake={submittedAt:accepted.intake.submittedAt,record:'example'};
  assert.deepEqual((await admin('deposit-report')).value.rows.map(r=>r.source),['Agreement','Vendor']);
+ const emailArgs={eventKey:'Test',requestId:crypto.randomUUID(),to:'other@example.invalid'};
+ assert.equal((await admin('email-deposit-report','a',emailArgs)).value.count,2);
+ const sent=mail.pop();
+ assert.equal(sent.to,env.OWNER_EMAIL);
+ const csv=Buffer.from(sent.attachments[0].content,'base64').toString();
+ assert.ok(csv.includes(vendorInput.email));assert.ok(!csv.includes(payload.account));
  await admin('set-report-enabled','a',{enabled:false});
+ assert.equal((await admin('email-deposit-report','a',emailArgs)).statusCode,409);
  assert.equal((await admin('deposit-report')).statusCode,409);
  const ciphertext=fs.readFileSync(path.join(dir,'contractor-vault-v1',accepted.intake.record+'.json'),'utf8');
  for(const sensitive of [payload.account,payload.routing,payload.pdf,payload.holder])assert.ok(!(JSON.stringify(data)+ciphertext).includes(sensitive));
