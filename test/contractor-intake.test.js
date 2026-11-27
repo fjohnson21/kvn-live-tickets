@@ -37,6 +37,16 @@ test('signed payee intake, encrypted storage, one-time finance access',async t=>
  const payload={session,usPerson:true,completedW9:true,consent:true,pdf:Buffer.from('%PDF-1.4\nTest only\n%%EOF').toString('base64'),holder:'Sample Payee',signature:'Sample Payee',account:'000000123456',confirmAccount:'000000123456',routing:'021000021',type:'Checking'};
  assert.equal((await call('submit',{...payload,routing:'123456789'})).statusCode,400);
  assert.equal((await call('submit',payload)).statusCode,200);assert.equal((await call('submit',payload)).statusCode,403);
+ assert.equal((await admin('deposit-report')).statusCode,409);
+ await admin('set-report-enabled','a',{enabled:true});
+ const report=(await admin('deposit-report')).value;
+ assert.deepEqual(report.rows.map(r=>r.id),['a']);
+ assert.equal(report.rows[0].available,true);
+ assert.ok(!JSON.stringify(report).includes(payload.account));
+ data.financeVendors[0].intake={submittedAt:accepted.intake.submittedAt,record:'example'};
+ assert.deepEqual((await admin('deposit-report')).value.rows.map(r=>r.source),['Agreement','Vendor']);
+ await admin('set-report-enabled','a',{enabled:false});
+ assert.equal((await admin('deposit-report')).statusCode,409);
  const ciphertext=fs.readFileSync(path.join(dir,'contractor-vault-v1',accepted.intake.record+'.json'),'utf8');
  for(const sensitive of [payload.account,payload.routing,payload.pdf,payload.holder])assert.ok(!(JSON.stringify(data)+ciphertext).includes(sensitive));
  assert.throws(()=>unseal(JSON.parse(ciphertext),k,'another-agreement'));
